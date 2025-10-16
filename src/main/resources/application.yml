@@ -1,20 +1,20 @@
 # 币安API密钥（请使用测试网密钥！）
 binance:
-  api-key: YOUR_API_KEY
-  secret-key: YOUR_SECRET_KEY
+  api-key: kq87hNhMzps2BlVJoIJGrfQSKNirr6KviypMLgesctRKDuxZ1avKx18iA8MsOuTL
+  secret-key: jUSZTT7kzVyqAmzBRptl79Jmz8mck18C61H83fsq3Bo0CsxgZHmQd2sim918WFaX
   base-url: https://fapi.binance.com
 
 
 bitget:
-  api-key: YOUR_API_KEY
-  secret-key: YOUR_SECRET_KEY
-  pass-phrase: YOUR_PASS
+  api-key: bg_5e15d05a7e79e3b19398baef93a5ec3c
+  secret-key: 15e39da020f6ff0327f457ec23a73628fc1d82a2d30212ca0d7b056e6fdebc38
+  pass-phrase: Yupeng258461.
   base-url: https://api.bitget.com
 
 okx:
-  api-key: YOUR_API_KEY
-  secret-key: YOUR_SECRET_KEY
-  pass-phrase: YOUR_PASS
+  api-key: 808fbbab-6f23-4aed-ba11-5bd4e430ee76
+  secret-key: E92FC7E7167BFEDD793E252DF0B20834","
+  pass-phrase: Yupeng258461.
   base-url: https://www.okx.com
 
 
