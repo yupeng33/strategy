@@ -1,20 +1,34 @@
-//package com.arbitrage.okx;
-//
-//import com.arbitrage.ApiSignature;
-//import com.arbitrage.HttpUtil;
-//import com.arbitrage.common.Constant;
-//import com.arbitrage.util.CommonUtil;
-//import com.arbitrage.util.TelegramUtil;
-//import okhttp3.Headers;
-//import okhttp3.MediaType;
-//import okhttp3.RequestBody;
-//import okhttp3.Response;
-//import org.json.JSONArray;
-//import org.json.JSONObject;
-//import org.springframework.stereotype.Service;
-//
-//@Service
-//public class OkxApiService {
+package com.arbitrage.okx;
+
+import com.arbitrage.ApiSignature;
+import com.arbitrage.HttpUtil;
+import com.arbitrage.util.CommonUtil;
+import lombok.extern.slf4j.Slf4j;
+import okhttp3.*;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+
+@Slf4j
+@Service
+public class OkxApiService {
+    @Value("${okx.api-key}")
+    private String apiKey;
+
+    @Value("${okx.secret-key}")
+    private String secretKey;
+
+    @Value("${okx.pass-phrase}")
+    private String passPhrase;
+
+    @Value("${okx.base-url}")
+    private String baseUrl;
+
 //    private boolean okxPlaceOrder(String symbol, String side, String posSide, double sz) {
 //        String url = "https://www.okx.com/api/v5/trade/order";
 //
@@ -55,28 +69,54 @@
 //            return false;
 //        }
 //    }
-//
-//    private boolean okxHasPosition(String symbol) {
-//        String url = "https://www.okx.com/api/v5/account/positions?instType=SWAP&instId=" + symbol;
-//        String timestamp = CommonUtil.getTimestamp();
-//        String preSign = timestamp + "GET" + "/api/v5/account/positions?instType=SWAP&instId=" + symbol;
-//        String signature = ApiSignature.hmacSha256(preSign, Constant.OKX_SECRET);
-//
-//        Headers headers = Headers.of(
-//                "OK-ACCESS-KEY", Constant.OKX_API_KEY,
-//                "OK-ACCESS-SIGN", signature,
-//                "OK-ACCESS-TIMESTAMP", timestamp,
-//                "OK-ACCESS-PASSPHRASE", Constant.OKX_PASSPHRASE,
-//                "Content-Type", "application/json"
-//        );
-//
-//        try (Response response = HttpUtil.send("GET", url, null, headers)) {
-//            String res = response.body().string();
-//            JSONObject resJson = new JSONObject(res);
-//            JSONArray data = resJson.getJSONArray("data");
-//            return !data.isEmpty() && data.getJSONObject(0).getDouble("pos") != 0;
-//        } catch (Exception e) {
-//            return false;
-//        }
-//    }
-//}
+
+    public static final String positionUrl = "/api/v5/account/positions";
+    public List<JSONObject> okxPosition() {
+        String url = baseUrl + positionUrl;
+        String timestamp = CommonUtil.getISOTimestamp();
+        String query = "instType=SWAP";
+        String preSign = timestamp + "GET" + positionUrl + "?" + query;
+        String signature = ApiSignature.hmacSha256(preSign, secretKey);
+
+        HttpUrl httpUrl = HttpUrl.parse(url + "?" + query).newBuilder().build();
+
+        Headers headers = Headers.of(
+                "OK-ACCESS-KEY", apiKey,
+                "OK-ACCESS-SIGN", signature,
+                "OK-ACCESS-TIMESTAMP", timestamp,
+                "OK-ACCESS-PASSPHRASE", passPhrase,
+                "Content-Type", "application/json"
+        );
+
+        Request request = new Request.Builder()
+                .url(httpUrl)
+                .headers(headers)
+                .build();
+
+        List<JSONObject> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONObject resJson = new JSONObject(res);
+            if ("0".equals(resJson.getString("code"))) {
+                JSONArray arr = resJson.getJSONArray("data");
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject pos = arr.getJSONObject(i);
+                    BigDecimal positionAmt = new BigDecimal(pos.getString("notionalUsd"));
+                    if (positionAmt.compareTo(BigDecimal.ZERO) > 0) {
+                        pos.put("exchange", "okx");
+                        String normalizeSymbol = CommonUtil.normalizeSymbol(pos.getString("instId"), "okx");
+                        pos.put("symbol", normalizeSymbol);
+
+                        pos.put("markPrice", pos.getString("markPx"));
+                        pos.put("openPriceAvg", pos.getString("avgPx"));
+                        result.add(pos);
+                    }
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("okxPosition error", e);
+            return new ArrayList<>();
+        }
+    }
+}

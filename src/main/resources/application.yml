@@ -1,5 +1,27 @@
 # 币安API密钥（请使用测试网密钥！）
 binance:
-  api-key: NKcmfTCoMP96hGNEwn3LuLn14k8bIXPqqrQAqeISZ5jhwblywjIYZCodN2IgGdg4
-  secret-key: YAdkGxF1KH3l8GegoTtnj7Zlc4vGpq9S3818PrxgKrU4avSUr70QhAWf5aCo57sr
+  api-key: YOUR_API_KEY
+  secret-key: YOUR_SECRET_KEY
   base-url: https://fapi.binance.com
+
+
+bitget:
+  api-key: YOUR_API_KEY
+  secret-key: YOUR_SECRET_KEY
+  pass-phrase: YOUR_PASS
+  base-url: https://api.bitget.com
+
+okx:
+  api-key: YOUR_API_KEY
+  secret-key: YOUR_SECRET_KEY
+  pass-phrase: YOUR_PASS
+  base-url: https://www.okx.com
+
+
+telegram:
+  botToken: 7960913304:AAFiw3cDQBQdxgrNAYqaF80TCXoWEPwJV7Y
+  chatId: -4945032554
+
+alert:
+  price-diff-per: 0.1
+  fundRate-diff-per: 0.01

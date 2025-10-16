@@ -26,13 +26,12 @@ public class TickerJob {
     @PostConstruct
     public void init() {
         System.out.println("🚀 正在初始化交易规则缓存...");
-        refreshExchangeInfo();
-        autoLongBotService.execute();
+//        refreshExchangeInfo();
         System.out.println("✅ 交易规则初始化完成");
     }
 
     // ✅ 定时更新规则（每小时一次）
-    @Scheduled(fixedRate = 60 * 60 * 1000)
+//    @Scheduled(fixedRate = 60 * 60 * 1000)
     public void refreshExchangeInfo() {
         try {
             String response = binanceApiService.sendPublicRequest("/fapi/v1/exchangeInfo");

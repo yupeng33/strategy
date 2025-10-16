@@ -9,22 +9,15 @@ import com.arbitrage.model.FundingRate;
 import okhttp3.Request;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Repository;
 
+@Repository
 public class TopFundingRateMonitor {
 
     private static final ExecutorService executor = Executors.newFixedThreadPool(3);
 
-    public static void main(String[] args) {
-        TopFundingRateMonitor.startTopFundingRateMonitor();
-
-        // 保持程序运行
-        try {
-            Thread.currentThread().join();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
+//    @Scheduled(fixedRate = 5 * 60 * 1000)
     public static void startTopFundingRateMonitor() {
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         scheduler.scheduleAtFixedRate(() -> {
