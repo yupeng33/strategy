@@ -1,0 +1,5 @@
+# 币安API密钥（请使用测试网密钥！）
+binance:
+  api-key: NKcmfTCoMP96hGNEwn3LuLn14k8bIXPqqrQAqeISZ5jhwblywjIYZCodN2IgGdg4
+  secret-key: YAdkGxF1KH3l8GegoTtnj7Zlc4vGpq9S3818PrxgKrU4avSUr70QhAWf5aCo57sr
+  base-url: https://fapi.binance.com
