@@ -1,8 +1,9 @@
-package com.strategy.arbitrage.okx;
+package com.strategy.arbitrage.service;
 
 import com.strategy.arbitrage.ApiSignature;
 import com.strategy.arbitrage.HttpUtil;
 import com.strategy.arbitrage.util.CommonUtil;
+import com.strategy.arbitrage.util.TelegramNotifier;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.json.JSONArray;
@@ -10,13 +11,14 @@ import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
 @Service
-public class OkxApiService {
+public class OkxApiService implements ExchangeService {
     @Value("${okx.api-key}")
     private String apiKey;
 
@@ -29,49 +31,51 @@ public class OkxApiService {
     @Value("${okx.base-url}")
     private String baseUrl;
 
-//    private boolean okxPlaceOrder(String symbol, String side, String posSide, double sz) {
-//        String url = "https://www.okx.com/api/v5/trade/order";
-//
-//        JSONObject json = new JSONObject();
-//        json.put("instId", symbol);
-//        json.put("tdMode", "cross");
-//        json.put("side", side);        // buy/sell
-//        json.put("posSide", posSide);  // long/short
-//        json.put("ordType", "market");
-//        json.put("sz", String.valueOf(sz));
-//
-//        String timestamp = CommonUtil.getTimestamp();
-//        String body = json.toString();
-//        String preSign = timestamp + "POST" + "/api/v5/trade/order" + body;
-//        String signature = ApiSignature.hmacSha256(preSign, Constant.OKX_SECRET);
-//
-//        Headers headers = Headers.of(
-//                "OK-ACCESS-KEY", Constant.OKX_API_KEY,
-//                "OK-ACCESS-SIGN", signature,
-//                "OK-ACCESS-TIMESTAMP", timestamp,
-//                "OK-ACCESS-PASSPHRASE", Constant.OKX_PASSPHRASE,
-//                "Content-Type", "application/json"
-//        );
-//
-//        try (Response response = HttpUtil.send("POST", url, RequestBody.create(body, MediaType.get("application/json")) , headers)) {
-//            String res = response.body().string();
-//            JSONObject resJson = new JSONObject(res);
-//            if ("0".equals(resJson.getString("code"))) {
-//                System.out.println("✅ OKX 开仓成功: " + body);
-//                return true;
-//            } else {
-//                System.err.println("❌ OKX 开仓失败: " + resJson.getString("msg"));
-//                TelegramUtil.sendTelegramMessage("❌ OKX 开仓失败: " + resJson.getString("msg"));
-//                return false;
-//            }
-//        } catch (Exception e) {
-//            e.printStackTrace();
-//            return false;
-//        }
-//    }
+    @Resource
+    private TelegramNotifier telegramNotifier;
+
+
+    private static final String placeOrderUrl = "/api/v5/trade/order";
+    public void placeOrder(String symbol, String side, double size) {
+        String url = baseUrl + placeOrderUrl;
+
+        JSONObject json = new JSONObject();
+        json.put("instId", symbol);
+        json.put("tdMode", "cross");
+        json.put("side", "buy");        // buy/sell
+        json.put("posSide", side);  // long/short
+        json.put("ordType", "market");
+        json.put("sz", String.valueOf(size));
+
+        String timestamp = CommonUtil.getTimestamp();
+        String body = json.toString();
+        String preSign = timestamp + "POST" + "/api/v5/trade/order" + body;
+        String signature = ApiSignature.hmacSha256(preSign, secretKey);
+
+        Headers headers = Headers.of(
+                "OK-ACCESS-KEY", apiKey,
+                "OK-ACCESS-SIGN", signature,
+                "OK-ACCESS-TIMESTAMP", timestamp,
+                "OK-ACCESS-PASSPHRASE", passPhrase,
+                "Content-Type", "application/json"
+        );
+
+        try (Response response = HttpUtil.send("POST", url, RequestBody.create(body, MediaType.get("application/json")) , headers)) {
+            String res = response.body().string();
+            JSONObject resJson = new JSONObject(res);
+            if ("0".equals(resJson.getString("code"))) {
+                telegramNotifier.send(String.format("✅ Bitget 开仓成功: %s %s %s", symbol, side, side));
+            } else {
+                System.err.println("❌ Bitget 开仓失败: " + resJson.getString("msg"));
+                telegramNotifier.send(String.format("✅ Bitget 开仓失败: %s %s %s %s", symbol, side, side, resJson.getString("msg")));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 
     public static final String positionUrl = "/api/v5/account/positions";
-    public List<JSONObject> okxPosition() {
+    public List<JSONObject> position() {
         String url = baseUrl + positionUrl;
         String timestamp = CommonUtil.getISOTimestamp();
         String query = "instType=SWAP";

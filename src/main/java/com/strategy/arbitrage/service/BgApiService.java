@@ -1,8 +1,8 @@
-package com.strategy.arbitrage.bitget;
+package com.strategy.arbitrage.service;
 
 import com.strategy.arbitrage.ApiSignature;
 import com.strategy.arbitrage.HttpUtil;
-import com.strategy.arbitrage.util.CommonUtil;
+import com.strategy.arbitrage.util.TelegramNotifier;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.json.JSONArray;
@@ -10,13 +10,14 @@ import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
 @Service
-public class BgApiService {
+public class BgApiService implements ExchangeService {
 
     @Value("${bitget.api-key}")
     private String apiKey;
@@ -30,49 +31,51 @@ public class BgApiService {
     @Value("${bitget.base-url}")
     private String baseUrl;
 
-//    private static boolean bitgetPlaceOrder(String symbol, String side, String marginMode, double size) {
-//        String url = "https://api.bitget.com/api/v2/mix/order/place-order";
-//
-//        JSONObject json = new JSONObject();
-//        json.put("symbol", symbol);
-//        json.put("marginMode", marginMode);   // cross / isolated
-//        json.put("side", side);               // open or close
-//        json.put("orderType", "market");
-//        json.put("size", String.valueOf(size));
-//
-//        String timestamp = String.valueOf(System.currentTimeMillis());
-//        String path = "/api/v2/mix/order/place-order";
-//        String body = json.toString();
-//        String preSign = timestamp + "POST" + path + body;
-//        String signature = ApiSignature.hmacSha256(preSign, BITGET_SECRET);
-//
-//        Headers headers = Headers.of(
-//                "ACCESS-KEY", BITGET_API_KEY,
-//                "ACCESS-SIGN", signature,
-//                "ACCESS-TIMESTAMP", timestamp,
-//                "ACCESS-PASSPHRASE", BITGET_PASSPHRASE,
-//                "Content-Type", "application/json"
-//        );
-//
-//        try (Response response = HttpUtil.send("POST", url, RequestBody.create(body, MediaType.get("application/json")), headers)) {
-//            String res = response.body().string();
-//            JSONObject resJson = new JSONObject(res);
-//            if ("00000".equals(resJson.getString("code"))) {
-//                System.out.println("✅ Bitget 开仓成功: " + body);
-//                return true;
-//            } else {
-//                System.err.println("❌ Bitget 开仓失败: " + resJson.getString("msg"));
-//                sendTelegramMessage("❌ Bitget 开仓失败: " + resJson.getString("msg"));
-//                return false;
-//            }
-//        } catch (Exception e) {
-//            e.printStackTrace();
-//            return false;
-//        }
-//    }
+    @Resource
+    private TelegramNotifier telegramNotifier;
+
+    public static final String placeOrderUrl = "/api/v2/mix/order/place-order";
+    public void placeOrder(String symbol, String side, double size) {
+        String url = baseUrl + placeOrderUrl;
+
+        JSONObject json = new JSONObject();
+        json.put("symbol", symbol);
+        json.put("productType", "USDT-FUTURES");
+        json.put("marginMode", "crossed");   // cross / isolated
+        json.put("marginCoin", "USDT");   // cross / isolated
+        json.put("size", String.valueOf(size));
+        json.put("side", side);               // open or close
+        json.put("orderType", "market");
+
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String body = json.toString();
+        String preSign = timestamp + "POST" + placeOrderUrl + body;
+        String signature = ApiSignature.hmacSha256(preSign, secretKey);
+
+        Headers headers = Headers.of(
+                "ACCESS-KEY", apiKey,
+                "ACCESS-SIGN", signature,
+                "ACCESS-TIMESTAMP", timestamp,
+                "ACCESS-PASSPHRASE", passPhrase,
+                "Content-Type", "application/json"
+        );
+
+        try (Response response = HttpUtil.send("POST", url, RequestBody.create(body, MediaType.get("application/json")), headers)) {
+            String res = response.body().string();
+            JSONObject resJson = new JSONObject(res);
+            if ("00000".equals(resJson.getString("code"))) {
+                telegramNotifier.send(String.format("✅ Bitget 开仓成功: %s %s %s", symbol, side, side));
+            } else {
+                System.err.println("❌ Bitget 开仓失败: " + resJson.getString("msg"));
+                telegramNotifier.send(String.format("✅ Bitget 开仓失败: %s %s %s %s", symbol, side, side, resJson.getString("msg")));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
 
     public static final String positionUrl = "/api/v2/mix/position/all-position";
-    public List<JSONObject> bitgetPosition() {
+    public List<JSONObject> position() {
         String url = baseUrl + positionUrl;
         String query = "marginCoin=USDT&productType=USDT-FUTURES";
         long timestamp = System.currentTimeMillis();

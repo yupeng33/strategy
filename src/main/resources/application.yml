@@ -1,3 +1,6 @@
+server:
+  port: 8443
+
 # 币安API密钥（请使用测试网密钥！）
 binance:
   api-key: kq87hNhMzps2BlVJoIJGrfQSKNirr6KviypMLgesctRKDuxZ1avKx18iA8MsOuTL

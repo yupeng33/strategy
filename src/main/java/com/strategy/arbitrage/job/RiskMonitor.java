@@ -1,9 +1,9 @@
 package com.strategy.arbitrage.job;
 
-import com.strategy.arbitrage.bitget.BgApiService;
-import com.strategy.arbitrage.bn.BnApiService;
+import com.strategy.arbitrage.service.BgApiService;
+import com.strategy.arbitrage.service.BnApiService;
 import com.strategy.arbitrage.model.Position;
-import com.strategy.arbitrage.okx.OkxApiService;
+import com.strategy.arbitrage.service.OkxApiService;
 import com.strategy.arbitrage.util.TelegramNotifier;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,13 +48,13 @@ public class RiskMonitor {
             return;
         }
 
-        List<JSONObject> jsonObjects = bnApiService.binancePosition();
+        List<JSONObject> jsonObjects = bnApiService.position();
         List<Position> bnPositionList = jsonObjects.stream().map(this::convert).toList();
 
-        jsonObjects = bgApiService.bitgetPosition();
+        jsonObjects = bgApiService.position();
         List<Position> bgPositionList = jsonObjects.stream().map(this::convert).toList();
 
-        jsonObjects = okxApiService.okxPosition();
+        jsonObjects = okxApiService.position();
         List<Position> okxPosition = jsonObjects.stream().map(this::convert).toList();
 
         checkRisk(bnPositionList, bgPositionList, okxPosition);
