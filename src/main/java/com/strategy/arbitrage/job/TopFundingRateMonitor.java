@@ -17,7 +17,7 @@ public class TopFundingRateMonitor {
 
     private static final ExecutorService executor = Executors.newFixedThreadPool(3);
 
-//    @Scheduled(fixedRate = 5 * 60 * 1000)
+    @Scheduled(fixedRate = 5 * 60 * 1000)
     public static void startTopFundingRateMonitor() {
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         scheduler.scheduleAtFixedRate(() -> {
