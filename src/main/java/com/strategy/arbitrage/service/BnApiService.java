@@ -2,6 +2,11 @@ package com.strategy.arbitrage.service;
 
 import com.strategy.arbitrage.ApiSignature;
 import com.strategy.arbitrage.HttpUtil;
+import com.strategy.arbitrage.common.constant.StaticConstant;
+import com.strategy.arbitrage.common.enums.ExchangeEnum;
+import com.strategy.arbitrage.model.FundingRate;
+import com.strategy.arbitrage.model.Price;
+import com.strategy.arbitrage.util.CommonUtil;
 import com.strategy.arbitrage.util.TelegramNotifier;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
@@ -9,6 +14,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import javax.annotation.Resource;
@@ -17,6 +24,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -74,6 +82,7 @@ public class BnApiService implements ExchangeService {
                 telegramNotifier.send(String.format("✅ Binance 开仓失败: %s %s %s %s", symbol, side, side, resJson.getString("msg")));
             }
         } catch (Exception e) {
+            log.error("binance placeOrder error", e);
             e.printStackTrace();
         }
     }
@@ -109,8 +118,101 @@ public class BnApiService implements ExchangeService {
             }
             return result;
         } catch (Exception e) {
-            log.error("binancePosition error", e);
+            log.error("binance position error", e);
             return new ArrayList<>();
         }
     }
+
+    private static final String fundRateUrl = "/fapi/v1/premiumIndex";
+    public List<FundingRate> fundRate(String symbol) {
+        String url = baseUrl + fundRateUrl;
+        HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
+        if (StringUtils.hasLength(symbol)) {
+            builder.addQueryParameter("symbol", symbol);
+        }
+        Request request = new Request.Builder().url(builder.build()).build();
+
+        List<FundingRate> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+
+            List<JSONObject> jsonObjects = fundingInfo(symbol);
+            Map<String, Long> symbol2Interval = jsonObjects.stream().collect(Collectors.toMap(e -> e.getString("symbol"), e -> e.getLong("fundingIntervalHours")));
+
+            String res = response.body().string();
+            JSONArray arr = new JSONArray(res);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject fundRate = arr.getJSONObject(i);
+                FundingRate fundingRate = new FundingRate();
+                fundingRate.setExchange(ExchangeEnum.BINANCE.getAbbr());
+                fundingRate.setSymbol(CommonUtil.normalizeSymbol(fundRate.getString("symbol"), ExchangeEnum.BINANCE.getAbbr()));
+                fundingRate.setRate(Double.parseDouble(fundRate.getString("lastFundingRate")));
+
+                long nextFundingTime = fundRate.getLong("nextFundingTime");
+                fundingRate.setNextFundingTime(nextFundingTime);
+                fundingRate.setInterval(symbol2Interval.getOrDefault(fundingRate.getSymbol(), 8L));
+                result.add(fundingRate);
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("binance fundRate error", e);
+            return new ArrayList<>();
+        }
+    }
+
+    private static final String fundingInfoUrl = "/fapi/v1/fundingInfo";
+    public List<JSONObject> fundingInfo(String symbol) {
+        String url = baseUrl + fundingInfoUrl;
+        HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
+        if (StringUtils.hasLength(symbol)) {
+            builder.addQueryParameter("symbol", symbol);
+        }
+        Request request = new Request.Builder().url(builder.build()).build();
+
+        List<JSONObject> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONArray arr = new JSONArray(res);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject fundRate = arr.getJSONObject(i);
+                result.add(fundRate);
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("binance fundingInfo error", e);
+            return new ArrayList<>();
+        }
+    }
+
+    private static final String priceUrl = "/fapi/v1/ticker/24hr";
+    @Override
+    public List<Price> price(String symbol) {
+        String url = baseUrl + priceUrl;
+        HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
+        if (StringUtils.hasLength(symbol)) {
+            builder.addQueryParameter("symbol", symbol);
+        }
+        Request request = new Request.Builder().url(builder.build()).build();
+
+        List<Price> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+
+            List<JSONObject> jsonObjects = fundingInfo(symbol);
+            Map<String, Long> symbol2Interval = jsonObjects.stream().collect(Collectors.toMap(e -> e.getString("symbol"), e -> e.getLong("fundingIntervalHours")));
+
+            String res = response.body().string();
+            JSONArray arr = new JSONArray(res);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject fundRate = arr.getJSONObject(i);
+                Price price = new Price();
+                price.setSymbol(CommonUtil.normalizeSymbol(fundRate.getString("symbol"), ExchangeEnum.BINANCE.getAbbr()));
+                price.setPrice(Double.parseDouble(fundRate.getString("lastPrice")));
+                result.add(price);
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("binance price error", e);
+            return new ArrayList<>();
+        }
+    }
+
 }

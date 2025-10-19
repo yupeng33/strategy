@@ -1,8 +1,8 @@
 package com.strategy.arbitrage.job;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.strategy.arbitrage.model.Update;
-import com.strategy.arbitrage.model.UpdateResponse;
+import com.strategy.arbitrage.model.telegram.Update;
+import com.strategy.arbitrage.model.telegram.UpdateResponse;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;

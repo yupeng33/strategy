@@ -1,6 +1,7 @@
 package com.strategy.arbitrage.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.strategy.arbitrage.model.telegram.User;
 import lombok.Data;
 
 @Data

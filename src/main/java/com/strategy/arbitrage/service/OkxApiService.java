@@ -2,6 +2,10 @@ package com.strategy.arbitrage.service;
 
 import com.strategy.arbitrage.ApiSignature;
 import com.strategy.arbitrage.HttpUtil;
+import com.strategy.arbitrage.common.constant.StaticConstant;
+import com.strategy.arbitrage.common.enums.ExchangeEnum;
+import com.strategy.arbitrage.model.FundingRate;
+import com.strategy.arbitrage.model.Price;
 import com.strategy.arbitrage.util.CommonUtil;
 import com.strategy.arbitrage.util.TelegramNotifier;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +14,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import javax.annotation.Resource;
 import java.math.BigDecimal;
@@ -36,6 +42,7 @@ public class OkxApiService implements ExchangeService {
 
 
     private static final String placeOrderUrl = "/api/v5/trade/order";
+
     public void placeOrder(String symbol, String side, double size) {
         String url = baseUrl + placeOrderUrl;
 
@@ -60,7 +67,7 @@ public class OkxApiService implements ExchangeService {
                 "Content-Type", "application/json"
         );
 
-        try (Response response = HttpUtil.send("POST", url, RequestBody.create(body, MediaType.get("application/json")) , headers)) {
+        try (Response response = HttpUtil.send("POST", url, RequestBody.create(body, MediaType.get("application/json")), headers)) {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
             if ("0".equals(resJson.getString("code"))) {
@@ -75,6 +82,7 @@ public class OkxApiService implements ExchangeService {
     }
 
     public static final String positionUrl = "/api/v5/account/positions";
+
     public List<JSONObject> position() {
         String url = baseUrl + positionUrl;
         String timestamp = CommonUtil.getISOTimestamp();
@@ -120,6 +128,84 @@ public class OkxApiService implements ExchangeService {
             return result;
         } catch (Exception e) {
             log.error("okxPosition error", e);
+            return new ArrayList<>();
+        }
+    }
+
+    private static final String fundingInfoUrl = "/api/v5/public/funding-rate";
+    public List<FundingRate> fundRate(String symbol) {
+        String url = baseUrl + fundingInfoUrl;
+        HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
+        builder.addQueryParameter("instType", "SWAP");
+        builder.addQueryParameter("instId", "ANY");
+
+        if (StringUtils.hasLength(symbol)) {
+            builder.addQueryParameter("symbol", symbol);
+        }
+        Request request = new Request.Builder().url(builder.build()).build();
+
+        List<FundingRate> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+
+            JSONObject json = new JSONObject(res);
+            if (!"0".equals(json.getString("code"))) {
+                throw new RuntimeException("OKX Error: " + json.getString("msg"));
+            }
+
+            JSONArray arr = json.getJSONArray("data");
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject fundRate = arr.getJSONObject(i);
+                FundingRate fundingRate = new FundingRate();
+                fundingRate.setExchange(ExchangeEnum.OKX.getAbbr());
+                fundingRate.setSymbol(CommonUtil.normalizeSymbol(fundRate.getString("instId"), ExchangeEnum.OKX.getAbbr()));
+                fundingRate.setRate(Double.parseDouble(fundRate.getString("fundingRate")));
+
+                long fundingTime = Long.parseLong(fundRate.getString("fundingTime"));
+                long nextFundingTime = Long.parseLong(fundRate.getString("nextFundingTime"));
+                fundingRate.setNextFundingTime(nextFundingTime);
+                fundingRate.setInterval((nextFundingTime - fundingTime)/60/60/1000);
+                result.add(fundingRate);
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("okxFundingInfo error", e);
+            return new ArrayList<>();
+        }
+    }
+
+    private static final String priceUrl = "/api/v5/market/tickers?instType=SWAP";
+    public List<Price> price(String symbol) {
+        String url = baseUrl + priceUrl;
+        HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
+        builder.addQueryParameter("instType", "SWAP");
+        builder.addQueryParameter("instId", "ANY");
+
+        if (StringUtils.hasLength(symbol)) {
+            builder.addQueryParameter("symbol", symbol);
+        }
+        Request request = new Request.Builder().url(builder.build()).build();
+
+        List<Price> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+
+            JSONObject json = new JSONObject(res);
+            if (!"0".equals(json.getString("code"))) {
+                throw new RuntimeException("OKX Error: " + json.getString("msg"));
+            }
+
+            JSONArray arr = json.getJSONArray("data");
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject fundRate = arr.getJSONObject(i);
+                Price price = new Price();
+                price.setSymbol(CommonUtil.normalizeSymbol(fundRate.getString("instId"), ExchangeEnum.OKX.getAbbr()));
+                price.setPrice(Double.parseDouble(fundRate.getString("last")));
+                result.add(price);
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("okxFundingInfo error", e);
             return new ArrayList<>();
         }
     }

@@ -1,5 +1,6 @@
 package com.strategy.arbitrage.job;
 
+import com.strategy.arbitrage.common.constant.StaticConstant;
 import com.strategy.arbitrage.service.BgApiService;
 import com.strategy.arbitrage.service.BnApiService;
 import com.strategy.arbitrage.model.Position;
@@ -42,9 +43,7 @@ public class RiskMonitor {
     @Scheduled(fixedRate = 60 * 1000,  initialDelay = 10 * 1000)
     public void checkRisk() {
         System.out.println("🔍 开始计算持仓价格偏离");
-        if (TriExchangeFundingMonitor.binanceFunding.isEmpty()
-                || TriExchangeFundingMonitor.bitgetFunding.isEmpty()
-                || TriExchangeFundingMonitor.okxFunding.isEmpty()) {
+        if (StaticConstant.binanceFunding.isEmpty() || StaticConstant.bitgetPrice.isEmpty() || StaticConstant.okxFunding.isEmpty()) {
             return;
         }
 
@@ -115,9 +114,9 @@ public class RiskMonitor {
             Position okxPos = okxMap.get(symbol);
 
             // 获取资金费率（假设已有服务获取）
-            Double bnFundRate = bnPos != null ? TriExchangeFundingMonitor.binanceFunding.get(symbol) : null;
-            Double bgFundRate = bgPos != null ? TriExchangeFundingMonitor.bitgetFunding.get(symbol) : null;
-            Double okxFundRate = okxPos != null ? TriExchangeFundingMonitor.okxFunding.get(symbol) : null;
+            Double bnFundRate = bnPos != null ? StaticConstant.binanceFunding.get(symbol).getRate() : null;
+            Double bgFundRate = bgPos != null ? StaticConstant.bitgetFunding.get(symbol).getRate() : null;
+            Double okxFundRate = okxPos != null ? StaticConstant.okxFunding.get(symbol).getRate() : null;
 
             // 条件1：价格偏离 ≥ 10%
             if (bnPos != null && Math.abs(bnPos.getCurrentPrice() - bnPos.getEntryPrice()) / bnPos.getEntryPrice() >= priceDiffPer) {

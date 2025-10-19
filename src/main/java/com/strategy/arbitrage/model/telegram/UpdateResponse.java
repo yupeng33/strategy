@@ -1,4 +1,4 @@
-package com.strategy.arbitrage.model;
+package com.strategy.arbitrage.model.telegram;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;

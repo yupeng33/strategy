@@ -1,5 +1,5 @@
 package com.strategy.arbitrage.controller;// TelegramBotController.java
-import com.strategy.arbitrage.model.Update;
+import com.strategy.arbitrage.model.telegram.Update;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 

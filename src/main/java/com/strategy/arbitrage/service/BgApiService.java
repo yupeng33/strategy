@@ -2,13 +2,21 @@ package com.strategy.arbitrage.service;
 
 import com.strategy.arbitrage.ApiSignature;
 import com.strategy.arbitrage.HttpUtil;
+import com.strategy.arbitrage.common.constant.StaticConstant;
+import com.strategy.arbitrage.common.enums.ExchangeEnum;
+import com.strategy.arbitrage.model.FundingRate;
+import com.strategy.arbitrage.model.Price;
+import com.strategy.arbitrage.util.CommonUtil;
 import com.strategy.arbitrage.util.TelegramNotifier;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import javax.annotation.Resource;
 import java.math.BigDecimal;
@@ -118,4 +126,73 @@ public class BgApiService implements ExchangeService {
             return new ArrayList<>();
         }
     }
+
+    private static final String fundRateUrl = "/api/v2/mix/market/current-fund-rate?productType=usdt-futures";
+    public List<FundingRate> fundRate(String symbol) {
+        String url = baseUrl + fundRateUrl;
+        HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
+        if (StringUtils.hasLength(symbol)) {
+            builder.addQueryParameter("symbol", symbol);
+        }
+        Request request = new Request.Builder().url(builder.build()).build();
+
+        List<FundingRate> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONObject json = new JSONObject(res);
+            if (!"00000".equals(json.getString("code"))) {
+                throw new RuntimeException("Bitget Error: " + json.getString("msg"));
+            }
+            JSONArray arr = json.getJSONArray("data");
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject fundRate = arr.getJSONObject(i);
+                FundingRate fundingRate = new FundingRate();
+                fundingRate.setExchange(ExchangeEnum.BITGET.getAbbr());
+                fundingRate.setSymbol(CommonUtil.normalizeSymbol(fundRate.getString("symbol"), ExchangeEnum.BITGET.getAbbr()));
+                fundingRate.setRate(Double.parseDouble(fundRate.getString("fundingRate")));
+
+                long nextFundingTime = Long.parseLong(fundRate.getString("nextUpdate"));
+                fundingRate.setNextFundingTime(nextFundingTime);
+                fundingRate.setInterval(Long.parseLong(fundRate.getString("fundingRateInterval")));
+                result.add(fundingRate);
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("bitgetFundRate error", e);
+            return new ArrayList<>();
+        }
+    }
+
+    private static final String priceUrl = "/api/v2/mix/market/tickers";
+    @Override
+    public List<Price> price(String symbol) {
+        String url = baseUrl + priceUrl;
+        HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
+        builder.addQueryParameter("productType", "USDT-FUTURES");
+
+        if (StringUtils.hasLength(symbol)) {
+            builder.addQueryParameter("symbol", symbol);
+        }
+        Request request = new Request.Builder().url(builder.build()).build();
+
+        List<Price> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONObject json = new JSONObject(res);
+            if (!"00000".equals(json.getString("code"))) {
+                throw new RuntimeException("Bitget Error: " + json.getString("msg"));
+            }
+            JSONArray arr = json.getJSONArray("data");
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject fundRate = arr.getJSONObject(i);
+                Price price = new Price();
+                price.setSymbol(CommonUtil.normalizeSymbol(fundRate.getString("symbol"), ExchangeEnum.BITGET.getAbbr()));
+                price.setPrice(Double.parseDouble(fundRate.getString("lastPr")));
+                result.add(price);
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("bitgetFundRate error", e);
+            return new ArrayList<>();
+        }    }
 }

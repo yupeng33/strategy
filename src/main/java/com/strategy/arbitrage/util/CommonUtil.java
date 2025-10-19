@@ -19,14 +19,11 @@ public class CommonUtil {
 
     // ================== Symbol 标准化 ==================
     public static String normalizeSymbol(String symbol, String exchange) {
-        String base;
+        String base = symbol;
 
         if (exchange.equalsIgnoreCase("okx")) {
             // OKX: BTC-USDT-SWAP → BTCUSDT
             base = symbol.replace("-SWAP", "").replace("-", "");
-        } else {
-            // Binance/Bitget: BTCUSDT 或 BTCUSDT_UMCBL → BTCUSDT
-            base = symbol.split("_")[0]; // 取第一部分
         }
 
         // 确保 base 不含重复 USDT
