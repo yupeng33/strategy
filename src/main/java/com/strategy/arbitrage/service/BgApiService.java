@@ -6,6 +6,7 @@ import com.strategy.arbitrage.common.constant.StaticConstant;
 import com.strategy.arbitrage.common.enums.ExchangeEnum;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.model.Price;
+import com.strategy.arbitrage.model.TickerLimit;
 import com.strategy.arbitrage.util.CommonUtil;
 import com.strategy.arbitrage.util.TelegramNotifier;
 import lombok.extern.slf4j.Slf4j;
@@ -195,4 +196,9 @@ public class BgApiService implements ExchangeService {
             log.error("bitgetFundRate error", e);
             return new ArrayList<>();
         }    }
+
+    @Override
+    public List<TickerLimit> tickerLimit(String symbol) {
+        return null;
+    }
 }

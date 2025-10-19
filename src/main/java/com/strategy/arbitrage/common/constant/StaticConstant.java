@@ -1,6 +1,7 @@
 package com.strategy.arbitrage.common.constant;
 
 import com.strategy.arbitrage.model.FundingRate;
+import com.strategy.arbitrage.model.TickerLimit;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -16,4 +17,6 @@ public class StaticConstant {
     public static Map<String, Double> binancePrice = new HashMap<>();
     public static Map<String, Double> okxPrice = new HashMap<>();
     public static Map<String, Double> bitgetPrice = new HashMap<>();
+
+    public static Map<String, TickerLimit> bnSymbolFilters = new HashMap<>();
 }

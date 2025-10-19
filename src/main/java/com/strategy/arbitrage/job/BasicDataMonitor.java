@@ -4,6 +4,7 @@ import com.strategy.arbitrage.common.constant.StaticConstant;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.model.Position;
 import com.strategy.arbitrage.model.Price;
+import com.strategy.arbitrage.model.TickerLimit;
 import com.strategy.arbitrage.service.BgApiService;
 import com.strategy.arbitrage.service.BnApiService;
 import com.strategy.arbitrage.service.OkxApiService;
@@ -43,6 +44,8 @@ public class BasicDataMonitor {
         StaticConstant.binancePrice = bnApiService.price(null).stream().collect(Collectors.toMap(Price::getSymbol, Price::getPrice));
         StaticConstant.bitgetPrice = bgApiService.price(null).stream().collect(Collectors.toMap(Price::getSymbol, Price::getPrice));
         StaticConstant.okxPrice = okxApiService.price(null).stream().collect(Collectors.toMap(Price::getSymbol, Price::getPrice));
+
+        StaticConstant.bnSymbolFilters = bnApiService.tickerLimit(null).stream().collect(Collectors.toMap(TickerLimit::getSymbol, Function.identity()));
         log.info("🔍 同步费率和价格数据结束");
     }
 

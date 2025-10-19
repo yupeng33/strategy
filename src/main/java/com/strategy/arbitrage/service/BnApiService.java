@@ -6,6 +6,7 @@ import com.strategy.arbitrage.common.constant.StaticConstant;
 import com.strategy.arbitrage.common.enums.ExchangeEnum;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.model.Price;
+import com.strategy.arbitrage.model.TickerLimit;
 import com.strategy.arbitrage.util.CommonUtil;
 import com.strategy.arbitrage.util.TelegramNotifier;
 import lombok.extern.slf4j.Slf4j;
@@ -211,6 +212,53 @@ public class BnApiService implements ExchangeService {
             return result;
         } catch (Exception e) {
             log.error("binance price error", e);
+            return new ArrayList<>();
+        }
+    }
+
+    private static final String tickerLimit = "/fapi/v1/exchangeInfo";
+    @Override
+    public List<TickerLimit> tickerLimit(String symbol) {
+        String url = baseUrl + tickerLimit;
+        HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
+        if (StringUtils.hasLength(symbol)) {
+            builder.addQueryParameter("symbol", symbol);
+        }
+        Request request = new Request.Builder().url(builder.build()).build();
+
+        List<TickerLimit> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONObject resJson = new JSONObject(res);
+            JSONArray arr = resJson.getJSONArray("symbols");
+
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject exchangeInfo = arr.getJSONObject(i);
+                JSONArray filters = exchangeInfo.getJSONArray("filters");
+
+                JSONObject lotSizeFilter = null;
+                for (int j = 0; j < filters.length(); j++) {
+                    JSONObject filter = filters.getJSONObject(j);
+                    if ("LOT_SIZE".equals(filter.getString("filterType"))) {
+                        lotSizeFilter = filter;
+                        break;
+                    }
+                }
+
+                if (lotSizeFilter == null) {
+                    continue;
+                }
+
+                TickerLimit tickerLimit = new TickerLimit();
+                tickerLimit.setSymbol(CommonUtil.normalizeSymbol(exchangeInfo.getString("symbol"), ExchangeEnum.BINANCE.getAbbr()));
+                tickerLimit.setMinQty(Double.parseDouble(lotSizeFilter.getString("minQty")));
+                tickerLimit.setMaxQty(Double.parseDouble(lotSizeFilter.getString("maxQty")));
+                tickerLimit.setStepSize(Double.parseDouble(lotSizeFilter.getString("stepSize")));
+                result.add(tickerLimit);
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("binance tickerLimit error", e);
             return new ArrayList<>();
         }
     }

@@ -1,8 +1,10 @@
 package com.strategy.arbitrage.job;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.strategy.arbitrage.common.enums.OperateEnum;
 import com.strategy.arbitrage.model.telegram.Update;
 import com.strategy.arbitrage.model.telegram.UpdateResponse;
+import com.strategy.arbitrage.service.TradeService;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -12,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.Resource;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -26,8 +29,10 @@ public class TelegramMessageMonitor {
 
     private String baseUrl;
     private final ObjectMapper objectMapper = new ObjectMapper();
-
     private long lastUpdateId = 0;
+
+    @Resource
+    private TradeService tradeService;
 
     @PostConstruct
     public void init() {
@@ -69,18 +74,13 @@ public class TelegramMessageMonitor {
 
             System.out.println("收到消息: " + text + " from " + chatId);
 
-            String exchange1;
-            String exchange2;
-            String symbol;
-            String margin;
-
             // 这里可以调用你原来的命令处理逻辑
             if (text.startsWith("/open")) {
                 String[] commands = text.split(" ");
-                exchange1  = commands[1];
-                exchange2  = commands[2];
-                symbol  = commands[3];
-                margin  = commands[4];
+                tradeService.trade(OperateEnum.OPEN, commands[1], commands[2], commands[3], commands[4], commands[5]);
+            } else if (text.startsWith("/close")) {
+                String[] commands = text.split(" ");
+                tradeService.trade(OperateEnum.CLOSE, commands[1], commands[2], commands[3], commands[4], null);
             } else {
                 sendMessage(chatId, "支持命令：/open /close 参数 {exchange1} {exchange2} {symbol} {margin}");
                 sendMessage(chatId, "ex：支持命令：/open okx bn COAIUSDT 2000");
