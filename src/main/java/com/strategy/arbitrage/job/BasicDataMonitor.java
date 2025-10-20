@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Repository;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.util.HashSet;
 import java.util.List;
@@ -34,7 +35,7 @@ public class BasicDataMonitor {
     @Resource
     private OkxApiService okxApiService;
 
-    @Scheduled(fixedRate = 60 * 1000)
+    @Scheduled(fixedRate = 5 * 60 * 1000)
     public void run() {
         log.info("🔍 开始同步费率和价格数据");
         StaticConstant.binanceFunding = bnApiService.fundRate(null).stream().collect(Collectors.toMap(FundingRate::getSymbol, Function.identity()));

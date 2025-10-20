@@ -196,10 +196,6 @@ public class BnApiService implements ExchangeService {
 
         List<Price> result = new ArrayList<>();
         try (Response response = HttpUtil.client.newCall(request).execute()) {
-
-            List<JSONObject> jsonObjects = fundingInfo(symbol);
-            Map<String, Long> symbol2Interval = jsonObjects.stream().collect(Collectors.toMap(e -> e.getString("symbol"), e -> e.getLong("fundingIntervalHours")));
-
             String res = response.body().string();
             JSONArray arr = new JSONArray(res);
             for (int i = 0; i < arr.length(); i++) {
