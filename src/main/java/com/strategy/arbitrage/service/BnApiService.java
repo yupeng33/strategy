@@ -3,7 +3,10 @@ package com.strategy.arbitrage.service;
 import com.strategy.arbitrage.ApiSignature;
 import com.strategy.arbitrage.HttpUtil;
 import com.strategy.arbitrage.common.constant.StaticConstant;
+import com.strategy.arbitrage.common.enums.BuySellEnum;
 import com.strategy.arbitrage.common.enums.ExchangeEnum;
+import com.strategy.arbitrage.common.enums.PositionSideEnum;
+import com.strategy.arbitrage.common.enums.TradeTypeEnum;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.model.Price;
 import com.strategy.arbitrage.model.TickerLimit;
@@ -15,12 +18,12 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import javax.annotation.Resource;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -42,87 +45,6 @@ public class BnApiService implements ExchangeService {
 
     @Resource
     private TelegramNotifier telegramNotifier;
-
-    private static final String placeOrderUrl = "/fapi/v1/order";
-    public void placeOrder(String symbol, String side, double size) {
-        // 下单（市价单做多）
-        Map<String, String> orderParams = new HashMap<>();
-        orderParams.put("symbol", symbol);
-        orderParams.put("side", "BUY");
-        orderParams.put("positionSide", side);
-        orderParams.put("type", "MARKET");
-        orderParams.put("quantity", String.valueOf(size));
-
-        // 1. 构造查询字符串
-        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseUrl + placeOrderUrl);
-        orderParams.forEach(builder::queryParam);
-
-        // 添加时间戳
-        long timestamp = System.currentTimeMillis();
-        builder.queryParam("timestamp", timestamp);
-
-        // 2. 生成签名
-        String queryString = builder.build().getQuery();
-        String signature = ApiSignature.hmacSha256Hex(queryString, secretKey);
-
-        // 3. 最终URL：添加 signature
-        String url = builder.queryParam("signature", signature).toUriString();
-
-        // 4. 创建请求头
-        Headers headers = Headers.of(
-                "X-MBX-APIKEY", apiKey,
-                "Content-Type", "application/json");
-
-        try (Response response = HttpUtil.send("POST", url, null , headers)) {
-            String res = response.body().string();
-            JSONObject resJson = new JSONObject(res);
-            if (resJson.has("orderId")) {
-                telegramNotifier.send(String.format("✅ Binance 开仓成功: %s %s %s", symbol, side, side));
-            } else {
-                System.err.println("❌ Binance 开仓失败: " + resJson.getString("msg"));
-                telegramNotifier.send(String.format("✅ Binance 开仓失败: %s %s %s %s", symbol, side, side, resJson.getString("msg")));
-            }
-        } catch (Exception e) {
-            log.error("binance placeOrder error", e);
-            e.printStackTrace();
-        }
-    }
-
-    private static final String positionUrl = "/fapi/v2/positionRisk";
-    public List<JSONObject> position() {
-        String url = baseUrl + positionUrl;
-        long timestamp = System.currentTimeMillis();
-        String query = "timestamp=" + timestamp;
-        String signature = ApiSignature.hmacSha256Hex(query, secretKey);
-
-        HttpUrl httpUrl = HttpUrl.parse(url).newBuilder()
-                .addQueryParameter("timestamp", String.valueOf(timestamp))
-                .addQueryParameter("signature", signature)
-                .build();
-
-        Request request = new Request.Builder()
-                .url(httpUrl)
-                .addHeader("X-MBX-APIKEY", apiKey)
-                .build();
-
-        List<JSONObject> result = new ArrayList<>();
-        try (Response response = HttpUtil.client.newCall(request).execute()) {
-            String res = response.body().string();
-            JSONArray arr = new JSONArray(res);
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject pos = arr.getJSONObject(i);
-                BigDecimal positionAmt = new BigDecimal(pos.getString("positionAmt"));
-                if (positionAmt.compareTo(BigDecimal.ZERO) > 0) {
-                    pos.put("exchange", "binance");
-                    result.add(pos);
-                }
-            }
-            return result;
-        } catch (Exception e) {
-            log.error("binance position error", e);
-            return new ArrayList<>();
-        }
-    }
 
     private static final String fundRateUrl = "/fapi/v1/premiumIndex";
     public List<FundingRate> fundRate(String symbol) {
@@ -197,6 +119,9 @@ public class BnApiService implements ExchangeService {
         List<Price> result = new ArrayList<>();
         try (Response response = HttpUtil.client.newCall(request).execute()) {
             String res = response.body().string();
+            if (StringUtils.hasLength(symbol)) {
+                res = "[" + res + "]";
+            }
             JSONArray arr = new JSONArray(res);
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject fundRate = arr.getJSONObject(i);
@@ -259,4 +184,148 @@ public class BnApiService implements ExchangeService {
         }
     }
 
+    private static final String positionUrl = "/fapi/v2/positionRisk";
+    public List<JSONObject> position() {
+        String url = baseUrl + positionUrl;
+        long timestamp = System.currentTimeMillis();
+        String query = "timestamp=" + timestamp;
+        String signature = ApiSignature.hmacSha256Hex(query, secretKey);
+
+        HttpUrl httpUrl = HttpUrl.parse(url).newBuilder()
+                .addQueryParameter("timestamp", String.valueOf(timestamp))
+                .addQueryParameter("signature", signature)
+                .build();
+
+        Request request = new Request.Builder()
+                .url(httpUrl)
+                .addHeader("X-MBX-APIKEY", apiKey)
+                .build();
+
+        List<JSONObject> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONArray arr = new JSONArray(res);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject pos = arr.getJSONObject(i);
+                BigDecimal positionAmt = new BigDecimal(pos.getString("positionAmt"));
+                if (positionAmt.compareTo(BigDecimal.ZERO) > 0) {
+                    pos.put("exchange", "binance");
+                    result.add(pos);
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("binance position error", e);
+            return new ArrayList<>();
+        }
+    }
+
+    private static final String setLeverUrl = "/fapi/v1/leverage";
+    public void setLever(String symbol, Integer lever) {
+        Map<String, String> params = new HashMap<>();
+        params.put("symbol", symbol);
+        params.put("leverage", String.valueOf(lever));
+
+        // 1. 构造查询字符串
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseUrl + setLeverUrl);
+        params.forEach(builder::queryParam);
+
+        // 添加时间戳
+        long timestamp = System.currentTimeMillis();
+        builder.queryParam("timestamp", timestamp);
+
+        // 2. 生成签名
+        String queryString = builder.build().getQuery();
+        String signature = ApiSignature.hmacSha256Hex(queryString, secretKey);
+
+        // 3. 最终URL：添加 signature
+        String url = builder.queryParam("signature", signature).toUriString();
+
+        // 4. 创建请求头
+        Headers headers = Headers.of(
+                "X-MBX-APIKEY", apiKey,
+                "Content-Type", "application/json");
+
+        try (Response response = HttpUtil.send("POST", url, null , headers)) {
+            String res = response.body().string();
+            JSONObject resJson = new JSONObject(res);
+            if (resJson.has("leverage")) {
+                telegramNotifier.send(String.format("✅ Binance 设置杠杆成功: %s %s", symbol, lever));
+            } else {
+                throw new RuntimeException("🚫 bn 设置杠杆失败 " + symbol);
+            }
+        } catch (Exception e) {
+            telegramNotifier.send(String.format("✅ Binance 设置杠杆报错: %s %s %s", symbol, lever, e.getMessage()));
+            throw new RuntimeException("🚫 bn 设置杠杆失败 " + symbol);
+        }
+    }
+
+
+    @Override
+    public Double calQuantity(String symbol, Double margin, Integer lever, double price) {
+        double quantity = (margin * lever) / price;
+        TickerLimit tickerLimit = StaticConstant.bnSymbolFilters.get(symbol);
+        if (tickerLimit == null) {
+            throw new RuntimeException("bn tickerLimit is null");
+        }
+
+        // ✅ 校验并调整数量
+        double finalQuantity = CommonUtil.normalizePrice(quantity, String.valueOf(tickerLimit.getStepSize()));
+        if (finalQuantity <= 0) {
+            throw new RuntimeException("🚫 bn 无法下单，数量无效: " + symbol);
+        }
+
+        System.out.println("📊 bn 下单数量: " + finalQuantity + " " + symbol);
+        return finalQuantity;
+    }
+
+    private static final String placeOrderUrl = "/fapi/v1/order";
+    public void placeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price) {
+        // 下单（市价单做多）
+        Map<String, String> orderParams = new HashMap<>();
+        orderParams.put("symbol", symbol);
+        orderParams.put("side", buySellEnum.getBnCode());               // buy/sell
+        orderParams.put("positionSide", positionSideEnum.getBnCode());  // long/short
+        orderParams.put("type", tradeTypeEnum.getBnCode());             // limit/market
+        orderParams.put("quantity", String.valueOf(quantity));
+
+        if (tradeTypeEnum == TradeTypeEnum.LIMIT) {
+            orderParams.put("timeInForce", "GTC");
+            orderParams.put("price", String.valueOf(price));
+        }
+
+        // 1. 构造查询字符串
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseUrl + placeOrderUrl);
+        orderParams.forEach(builder::queryParam);
+
+        // 添加时间戳
+        long timestamp = System.currentTimeMillis();
+        builder.queryParam("timestamp", timestamp);
+
+        // 2. 生成签名
+        String queryString = builder.build().getQuery();
+        String signature = ApiSignature.hmacSha256Hex(queryString, secretKey);
+
+        // 3. 最终URL：添加 signature
+        String url = builder.queryParam("signature", signature).toUriString();
+
+        // 4. 创建请求头
+        Headers headers = Headers.of(
+                "X-MBX-APIKEY", apiKey,
+                "Content-Type", "application/json");
+
+        try (Response response = HttpUtil.send("POST", url, null , headers)) {
+            String res = response.body().string();
+            JSONObject resJson = new JSONObject(res);
+            if (resJson.has("orderId")) {
+                telegramNotifier.send(String.format("✅ bn 开仓成功: %s %s %s %s",
+                        symbol, buySellEnum.getBnCode(), positionSideEnum.getBnCode(), quantity));
+            } else {
+                throw new RuntimeException("🚫 bn 开仓失败 " + symbol + resJson.getString("msg"));
+            }
+        } catch (Exception e) {
+            telegramNotifier.send(String.format("✅ bn 开仓失败: %s %s", symbol, e.getMessage()));
+            throw new RuntimeException("🚫 bn 开仓失败 " + symbol);
+        }
+    }
 }

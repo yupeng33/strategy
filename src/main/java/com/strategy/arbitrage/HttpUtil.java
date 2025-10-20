@@ -6,6 +6,7 @@ public class HttpUtil {
     public static final OkHttpClient client = new OkHttpClient();
 
     public static Response send(String method, String url, RequestBody body, Headers headers) throws Exception {
+        body = body == null ? RequestBody.create("", MediaType.parse("application/json")) : body;
         Request request = new Request.Builder()
                 .url(url)
                 .headers(headers)

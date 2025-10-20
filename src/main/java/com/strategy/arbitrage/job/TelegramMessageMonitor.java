@@ -73,17 +73,25 @@ public class TelegramMessageMonitor {
             Long chatId = update.getMessage().getFrom().getId();
 
             System.out.println("收到消息: " + text + " from " + chatId);
+            String[] commands = text.split(" ");
 
-            // 这里可以调用你原来的命令处理逻辑
-            if (text.startsWith("/open")) {
-                String[] commands = text.split(" ");
-                tradeService.trade(OperateEnum.OPEN, commands[1], commands[2], commands[3], commands[4], commands[5]);
-            } else if (text.startsWith("/close")) {
-                String[] commands = text.split(" ");
-                tradeService.trade(OperateEnum.CLOSE, commands[1], commands[2], commands[3], commands[4], null);
-            } else {
-                sendMessage(chatId, "支持命令：/open /close 参数 {exchange1} {exchange2} {symbol} {margin}");
-                sendMessage(chatId, "ex：支持命令：/open okx bn COAIUSDT 2000");
+            try {
+                // 这里可以调用你原来的命令处理逻辑
+                if (text.startsWith("/open")) {
+                    // /open okx bn COAIUSDT 2000 5
+                    tradeService.trade(OperateEnum.OPEN, commands[1], commands[2], commands[3], commands[4], commands[5]);
+                } else if (text.startsWith("/close")) {
+                    // /close okx bn COAIUSDT 2000 5
+                    tradeService.trade(OperateEnum.CLOSE, commands[1], commands[2], commands[3], commands[4], null);
+                } else if (text.startsWith("/testTrade")) {
+                    // /testTrade open long bn COAIUSDT 2000 5
+                    tradeService.testTrade(OperateEnum.getByAbbr(commands[1]), commands[2], commands[3], commands[4], commands[5], commands[6]);
+                } else {
+                    sendMessage(chatId, "支持命令：/open /close 参数 {exchange1} {exchange2} {symbol} {margin} {lever}");
+                    sendMessage(chatId, "ex：支持命令：/open okx bn COAIUSDT 2000 5");
+                }
+            } catch (Exception e) {
+                sendMessage(chatId, "text 操作失败" + e.getMessage());
             }
         }
     }

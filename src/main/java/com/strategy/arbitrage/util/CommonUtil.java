@@ -1,5 +1,7 @@
 package com.strategy.arbitrage.util;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -32,5 +34,10 @@ public class CommonUtil {
         } else {
             return base + "USDT"; // 否则补上
         }
+    }
+
+    public static double normalizePrice(double price, String template) {
+        int scale = new BigDecimal(template).stripTrailingZeros().scale();
+        return new BigDecimal(Double.toString(price)).setScale(scale, RoundingMode.FLOOR).doubleValue();
     }
 }
