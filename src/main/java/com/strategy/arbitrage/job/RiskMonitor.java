@@ -48,54 +48,15 @@ public class RiskMonitor {
         }
 
         List<JSONObject> jsonObjects = bnApiService.position();
-        List<Position> bnPositionList = jsonObjects.stream().map(this::convert).toList();
+        List<Position> bnPositionList = jsonObjects.stream().map(Position::convert).toList();
 
         jsonObjects = bgApiService.position();
-        List<Position> bgPositionList = jsonObjects.stream().map(this::convert).toList();
+        List<Position> bgPositionList = jsonObjects.stream().map(Position::convert).toList();
 
         jsonObjects = okxApiService.position();
-        List<Position> okxPosition = jsonObjects.stream().map(this::convert).toList();
+        List<Position> okxPosition = jsonObjects.stream().map(Position::convert).toList();
 
         checkRisk(bnPositionList, bgPositionList, okxPosition);
-    }
-
-    public Position convert(JSONObject jsonObject) {
-        Position p = new Position();
-        String exchange = jsonObject.getString("exchange");
-        p.setExchange(exchange);
-        p.setSymbol(jsonObject.getString("symbol"));
-        p.setCurrentPrice(Double.parseDouble(jsonObject.getString("markPrice")));
-
-        double positionAmt;
-        double leverage;
-
-        switch (exchange) {
-            case "binance":
-                p.setEntryPrice(Double.parseDouble(jsonObject.getString("entryPrice")));
-                positionAmt = Double.parseDouble(jsonObject.getString("positionAmt"));
-                leverage = Integer.parseInt(jsonObject.getString("leverage"));
-                p.setMargin(positionAmt/leverage);
-                p.setUnRealizedProfit(Double.parseDouble(jsonObject.getString("unRealizedProfit")));
-                break;
-            case "bitget":
-                p.setEntryPrice(Double.parseDouble(jsonObject.getString("openPriceAvg")));
-                // TODO: 持有仓位，待确定
-                positionAmt = Double.parseDouble(jsonObject.getString("marginSize"));
-                leverage = Integer.parseInt(jsonObject.getString("leverage"));
-                p.setMargin(positionAmt/leverage);
-                p.setUnRealizedProfit(Double.parseDouble(jsonObject.getString("unrealizedPL")));
-                break;
-            case "okx":
-                p.setEntryPrice(Double.parseDouble(jsonObject.getString("avgPx")));
-                positionAmt = Double.parseDouble(jsonObject.getString("notionalUsd"));
-                leverage = Integer.parseInt(jsonObject.getString("lever"));
-                p.setMargin(positionAmt/leverage);
-                p.setUnRealizedProfit(Double.parseDouble(jsonObject.getString("upl")));
-                break;
-            default:
-                break;
-        }
-        return p;
     }
 
     public void checkRisk(List<Position> bnPositions, List<Position> bgPositions, List<Position> okxPositions) {

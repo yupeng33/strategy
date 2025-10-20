@@ -3,12 +3,15 @@ package com.strategy.arbitrage.service;
 import com.strategy.arbitrage.common.constant.StaticConstant;
 import com.strategy.arbitrage.common.enums.*;
 import com.strategy.arbitrage.model.FundingRate;
+import com.strategy.arbitrage.model.Position;
 import com.strategy.arbitrage.util.CommonUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.json.JSONObject;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -72,19 +75,49 @@ public class TradeService {
     private void doClose(String exchangeA, String exchangeB, String symbol, Double margin) {
     }
 
-    //     void placeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity);
     public void testTrade(OperateEnum operateEnum, String longShort, String exchange, String symbol, String margin, String lever) {
-        boolean openLong = longShort.equalsIgnoreCase("long");
-        BuySellEnum buySellEnum = openLong ? BuySellEnum.BUY : BuySellEnum.SELL;
-        PositionSideEnum positionSideEnum = openLong ? PositionSideEnum.LONG : PositionSideEnum.SHORT;
-
         ExchangeService exchangeService = exchangeServiceFactory.getService(exchange);
-        exchangeService.setLever(symbol, Integer.parseInt(lever));
         double price = exchangeService.price(symbol).get(0).getPrice();
-        double finalPrice = openLong ? price * 0.999 : price * 1.001;
-        finalPrice = CommonUtil.normalizePrice(finalPrice, String.valueOf(price));
 
-        Double quantity = exchangeService.calQuantity(symbol, Double.parseDouble(margin), Integer.parseInt(lever), finalPrice);
+        double finalPrice;
+        Double quantity;
+        BuySellEnum buySellEnum;
+        PositionSideEnum positionSideEnum;
+
+        if (operateEnum == OperateEnum.OPEN) {
+            if (longShort.equalsIgnoreCase("long")) {
+                buySellEnum = BuySellEnum.BUY;      // 买入开多
+                finalPrice = price * 0.999;
+                positionSideEnum = PositionSideEnum.LONG;
+            } else {
+                buySellEnum = BuySellEnum.SELL;     // 卖出开空
+                finalPrice = price * 1.001;
+                positionSideEnum = PositionSideEnum.SHORT;
+            }
+
+            finalPrice = CommonUtil.normalizePrice(finalPrice, String.valueOf(price));
+            // 开仓计算合约张数
+            quantity = exchangeService.calQuantity(symbol, Double.parseDouble(margin), Integer.parseInt(lever), finalPrice);
+        } else {
+            if (longShort.equalsIgnoreCase("short")) {
+                buySellEnum = BuySellEnum.BUY;      // 买入平空
+                finalPrice = price * 1.001;
+                positionSideEnum = PositionSideEnum.SHORT;
+            } else {
+                buySellEnum = BuySellEnum.SELL;     // 卖出平多
+                finalPrice = price * 0.999;
+                positionSideEnum = PositionSideEnum.LONG;
+            }
+
+            List<JSONObject> jsonObjects = exchangeService.position();
+            List<Position> positionList = jsonObjects.stream().map(Position::convert).toList();
+            Position position = positionList.stream().filter(e -> e.getSymbol().equalsIgnoreCase(symbol)).findFirst().orElseThrow(() -> new RuntimeException("仓位获取失败"));
+
+            // 关仓获取已有仓位
+            quantity = position.getPositionAmt();
+        }
+
+        exchangeService.setLever(symbol, Integer.parseInt(lever));
         exchangeService.placeOrder(symbol, buySellEnum, positionSideEnum, TradeTypeEnum.LIMIT, quantity, finalPrice);
     }
 

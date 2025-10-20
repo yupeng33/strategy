@@ -286,4 +286,8 @@ public class OkxApiService implements ExchangeService {
         }
     }
 
+    @Override
+    public void closeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price) {
+        placeOrder(symbol, buySellEnum, positionSideEnum, tradeTypeEnum, quantity, price);
+    }
 }

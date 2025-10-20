@@ -208,7 +208,7 @@ public class BnApiService implements ExchangeService {
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject pos = arr.getJSONObject(i);
                 BigDecimal positionAmt = new BigDecimal(pos.getString("positionAmt"));
-                if (positionAmt.compareTo(BigDecimal.ZERO) > 0) {
+                if (positionAmt.abs().compareTo(BigDecimal.ZERO) > 0) {
                     pos.put("exchange", "binance");
                     result.add(pos);
                 }
@@ -281,7 +281,6 @@ public class BnApiService implements ExchangeService {
 
     private static final String placeOrderUrl = "/fapi/v1/order";
     public void placeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price) {
-        // 下单（市价单做多）
         Map<String, String> orderParams = new HashMap<>();
         orderParams.put("symbol", symbol);
         orderParams.put("side", buySellEnum.getBnCode());               // buy/sell
@@ -318,14 +317,19 @@ public class BnApiService implements ExchangeService {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
             if (resJson.has("orderId")) {
-                telegramNotifier.send(String.format("✅ bn 开仓成功: %s %s %s %s",
+                telegramNotifier.send(String.format("✅ bn 下单成功: %s %s %s %s",
                         symbol, buySellEnum.getBnCode(), positionSideEnum.getBnCode(), quantity));
             } else {
-                throw new RuntimeException("🚫 bn 开仓失败 " + symbol + resJson.getString("msg"));
+                throw new RuntimeException("🚫 bn 下单失败 " + symbol + resJson.getString("msg"));
             }
         } catch (Exception e) {
-            telegramNotifier.send(String.format("✅ bn 开仓失败: %s %s", symbol, e.getMessage()));
-            throw new RuntimeException("🚫 bn 开仓失败 " + symbol);
+            telegramNotifier.send(String.format("✅ bn 下单失败: %s %s", symbol, e.getMessage()));
+            throw new RuntimeException("🚫 bn 下单失败 " + symbol);
         }
+    }
+
+    @Override
+    public void closeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price) {
+        placeOrder(symbol, buySellEnum, positionSideEnum, tradeTypeEnum, quantity, price);
     }
 }
