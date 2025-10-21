@@ -1,6 +1,7 @@
 package com.strategy.arbitrage.job;
 
 import com.strategy.arbitrage.common.constant.StaticConstant;
+import com.strategy.arbitrage.common.enums.ExchangeEnum;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.service.BgApiService;
 import com.strategy.arbitrage.service.BnApiService;
@@ -8,6 +9,7 @@ import com.strategy.arbitrage.service.OkxApiService;
 import com.strategy.arbitrage.util.CommonUtil;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Repository;
 
@@ -30,6 +32,12 @@ public class TriExchangeFundingMonitor {
     private static final int TOP_N = 10;
     private static final int POLLING_INTERVAL_MINUTES = 5;
 
+    @Value("${switch.diff-fund-rate-show: false}")
+    private Boolean diffFundRateShow;
+
+    @Value("${switch.top-fund-rate-show: false}")
+    private Boolean topFundRateShow;
+
     @Resource
     private BnApiService bnApiService;
     @Resource
@@ -39,29 +47,28 @@ public class TriExchangeFundingMonitor {
 
     @Scheduled(fixedRate = 2 * 60 * 1000, initialDelay = 3 * 1000)
     public void run() {
-        System.out.println("🔍 三交易所资金费率监控系统启动（OKX + 币安 + Bitget）...");
-        System.out.println("📊 每 " + POLLING_INTERVAL_MINUTES + " 分钟输出资金费率差距最大的前 " + TOP_N + " 组合");
+        if (diffFundRateShow) {
+            System.out.println("🔍 三交易所资金费率监控系统启动（OKX + 币安 + Bitget）...");
+            System.out.println("📊 每 " + POLLING_INTERVAL_MINUTES + " 分钟输出资金费率差距最大的前 " + TOP_N + " 组合");
 
-        try {
             List<RateDiff> diffs = new ArrayList<>();
-
             // 两两对比：OKX vs 币安
             compareAndAdd(diffs, "OKX", "Binance", StaticConstant.okxFunding, StaticConstant.binanceFunding, StaticConstant.okxPrice, StaticConstant.binancePrice);
-
             // OKX vs Bitget
             compareAndAdd(diffs, "OKX", "Bitget", StaticConstant.okxFunding, StaticConstant.bitgetFunding, StaticConstant.okxPrice, StaticConstant.bitgetPrice);
-
             // 币安 vs Bitget
             compareAndAdd(diffs, "Binance", "Bitget", StaticConstant.binanceFunding, StaticConstant.bitgetFunding, StaticConstant.binancePrice, StaticConstant.bitgetPrice);
 
             // 按利差排序，取 Top 20
             diffs.sort((a, b) -> Double.compare(b.diff, a.diff));
             List<RateDiff> top20 = diffs.size() > TOP_N ? diffs.subList(0, TOP_N) : diffs;
-
             printTop20(top20);
+        }
 
-        } catch (Exception e) {
-            System.err.println("❌ 数据获取失败: " + e.getMessage());
+        if (topFundRateShow) {
+            printTopByExchange(new ArrayList<>(StaticConstant.okxFunding.values()), ExchangeEnum.OKX.getAbbr());
+            printTopByExchange(new ArrayList<>(StaticConstant.binanceFunding.values()), ExchangeEnum.BINANCE.getAbbr());
+            printTopByExchange(new ArrayList<>(StaticConstant.bitgetFunding.values()), ExchangeEnum.BITGET.getAbbr());
         }
     }
 
@@ -127,6 +134,16 @@ public class TriExchangeFundingMonitor {
         }
         System.out.println("=".repeat(140));
         System.out.printf("✅ 当前时间: %s | 共匹配 %d 个组合，已输出前 %d 名\n", new Date(), list.size(), Math.min(TOP_N, list.size()));
+    }
+
+    private static void printTopByExchange(List<FundingRate> rates, String exchange) {
+        rates.sort((a, b) -> Double.compare(b.getAbsRate(), a.getAbsRate()));
+        List<FundingRate> filtered = rates.stream().limit(10).toList();
+
+        System.out.println("\n🔥 " + exchange + " |资金费率| Top 10:");
+        System.out.println(String.format("%-8s %-12s %-8s %-8s %s", "交易所", "合约", "费率(%)", "间隔", "下次结算"));
+        System.out.println("-".repeat(50));
+        filtered.forEach(System.out::println);
     }
 
     // ================== 数据模型 ==================

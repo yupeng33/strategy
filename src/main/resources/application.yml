@@ -31,3 +31,7 @@ alert:
 
 
 order-price-diff-per: 0.0005
+
+switch:
+  diff-fund-rate-show: true
+  top-fund-rate-show: false
