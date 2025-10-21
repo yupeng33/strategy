@@ -111,7 +111,7 @@ public class TriExchangeFundingMonitor {
 
         for (RateDiff d : list) {
             String direction = d.okxFundingA > d.fundingRateB ? "高→低" : "低→高";
-            System.out.printf("%-10s %-10s %-10s %-10.4f %-10.4f %-12.6f %-12.6f %-10d %-10d %-12.6f %-10s%n",
+            System.out.printf("%-10s %-10s %-10s %-10.6f %-10.6f %-12.6f %-12.6f %-10d %-10d %-12.6f %-10s%n",
                     d.symbol,
                     d.exchangeA,
                     d.exchangeB,

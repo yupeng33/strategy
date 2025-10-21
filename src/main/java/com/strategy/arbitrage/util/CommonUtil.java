@@ -1,5 +1,7 @@
 package com.strategy.arbitrage.util;
 
+import com.strategy.arbitrage.common.enums.ExchangeEnum;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.ZoneOffset;
@@ -23,13 +25,13 @@ public class CommonUtil {
     public static String normalizeSymbol(String symbol, String exchange) {
         String base = symbol;
 
-        if (exchange.equalsIgnoreCase("okx")) {
+        if (exchange.equalsIgnoreCase(ExchangeEnum.OKX.getAbbr())) {
             // OKX: BTC-USDT-SWAP → BTCUSDT
             base = symbol.replace("-SWAP", "").replace("-", "");
         }
 
         // 确保 base 不含重复 USDT
-        if (base.contains("USDT")) {
+        if (base.contains("USDT") || base.contains("USD")) {
             return base; // 已有 USDT，直接返回
         } else {
             return base + "USDT"; // 否则补上

@@ -13,7 +13,7 @@ import java.util.List;
 public interface ExchangeService {
     List<FundingRate> fundRate(String symbol);
     List<Price> price(String symbol);
-    List<TickerLimit> tickerLimit(String symbol);
+    List<TickerLimit> tickerLimit();
 
     List<JSONObject> position();
     void setLever(String symbol, Integer lever);

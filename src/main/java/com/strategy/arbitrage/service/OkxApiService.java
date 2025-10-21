@@ -84,7 +84,7 @@ public class OkxApiService implements ExchangeService {
             }
             return result;
         } catch (Exception e) {
-            log.error("okxFundingInfo error", e);
+            log.error("okx fundRate error", e);
             return new ArrayList<>();
         }
     }
@@ -120,14 +120,56 @@ public class OkxApiService implements ExchangeService {
             }
             return result;
         } catch (Exception e) {
-            log.error("okxFundingInfo error", e);
+            log.error("okx price error", e);
             return new ArrayList<>();
         }
     }
 
+    public static final String tickerLimitUrl = "/api/v5/account/instruments";
     @Override
-    public List<TickerLimit> tickerLimit(String symbol) {
-        return null;
+    public List<TickerLimit> tickerLimit() {
+        String url = baseUrl + tickerLimitUrl;
+        String timestamp = CommonUtil.getISOTimestamp();
+        String query = "instType=SWAP";
+        String preSign = timestamp + "GET" + tickerLimitUrl + "?" + query;
+        String signature = ApiSignature.hmacSha256(preSign, secretKey);
+
+        HttpUrl httpUrl = HttpUrl.parse(url + "?" + query).newBuilder().build();
+
+        Headers headers = Headers.of(
+                "OK-ACCESS-KEY", apiKey,
+                "OK-ACCESS-SIGN", signature,
+                "OK-ACCESS-TIMESTAMP", timestamp,
+                "OK-ACCESS-PASSPHRASE", passPhrase,
+                "Content-Type", "application/json"
+        );
+
+        Request request = new Request.Builder()
+                .url(httpUrl)
+                .headers(headers)
+                .build();
+
+        List<TickerLimit> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONObject resJson = new JSONObject(res);
+            if ("0".equals(resJson.getString("code"))) {
+                JSONArray arr = resJson.getJSONArray("data");
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject tickerLimiterJson = arr.getJSONObject(i);
+                    TickerLimit tickerLimit = new TickerLimit();
+                    tickerLimit.setSymbol(CommonUtil.normalizeSymbol(tickerLimiterJson.getString("instId"), ExchangeEnum.OKX.getAbbr()));
+                    tickerLimit.setMinQty(Double.parseDouble(tickerLimiterJson.getString("minSz")));
+                    tickerLimit.setMaxQty(Double.parseDouble(tickerLimiterJson.getString("maxLmtSz")));
+                    tickerLimit.setStepSize(Double.parseDouble(tickerLimiterJson.getString("lotSz")));
+                    result.add(tickerLimit);
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("okx tickerLimit error", e);
+            return new ArrayList<>();
+        }
     }
 
     public static final String positionUrl = "/api/v5/account/positions";
@@ -163,8 +205,8 @@ public class OkxApiService implements ExchangeService {
                     JSONObject pos = arr.getJSONObject(i);
                     BigDecimal positionAmt = new BigDecimal(pos.getString("notionalUsd"));
                     if (positionAmt.compareTo(BigDecimal.ZERO) > 0) {
-                        pos.put("exchange", "okx");
-                        String normalizeSymbol = CommonUtil.normalizeSymbol(pos.getString("instId"), "okx");
+                        pos.put("exchange", ExchangeEnum.OKX.getAbbr());
+                        String normalizeSymbol = CommonUtil.normalizeSymbol(pos.getString("instId"), ExchangeEnum.OKX.getAbbr());
                         pos.put("symbol", normalizeSymbol);
 
                         pos.put("markPrice", pos.getString("markPx"));
@@ -175,49 +217,43 @@ public class OkxApiService implements ExchangeService {
             }
             return result;
         } catch (Exception e) {
-            log.error("okxPosition error", e);
+            log.error("okx position error", e);
             return new ArrayList<>();
         }
     }
 
-    private static final String setLeverUrl = "/fapi/v2/leverage";
+    private static final String setLeverUrl = "/api/v5/account/set-leverage";
     public void setLever(String symbol, Integer lever) {
-        Map<String, String> params = new HashMap<>();
-        params.put("symbol", symbol);
-        params.put("leverage", String.valueOf(lever));
+        String url = baseUrl + setLeverUrl;
+        JSONObject json = new JSONObject();
+        json.put("instId", symbol);
+        json.put("mgnMode", "cross");
+        json.put("lever", lever);
 
-        // 1. 构造查询字符串
-        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseUrl + setLeverUrl);
-        params.forEach(builder::queryParam);
+        String timestamp = CommonUtil.getTimestamp();
+        String body = json.toString();
+        String preSign = timestamp + "POST" + setLeverUrl + body;
+        String signature = ApiSignature.hmacSha256(preSign, secretKey);
 
-        // 添加时间戳
-        long timestamp = System.currentTimeMillis();
-        builder.queryParam("timestamp", timestamp);
-
-        // 2. 生成签名
-        String queryString = builder.build().getQuery();
-        String signature = ApiSignature.hmacSha256Hex(queryString, secretKey);
-
-        // 3. 最终URL：添加 signature
-        String url = builder.queryParam("signature", signature).toUriString();
-
-        // 4. 创建请求头
         Headers headers = Headers.of(
-                "X-MBX-APIKEY", apiKey,
-                "Content-Type", "application/json");
+                "OK-ACCESS-KEY", apiKey,
+                "OK-ACCESS-SIGN", signature,
+                "OK-ACCESS-TIMESTAMP", timestamp,
+                "OK-ACCESS-PASSPHRASE", passPhrase,
+                "Content-Type", "application/json"
+        );
 
-        try (Response response = HttpUtil.send("POST", url, null , headers)) {
+        try (Response response = HttpUtil.send("POST", url, RequestBody.create(body, MediaType.get("application/json")), headers)) {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
-            if (resJson.has("orderId")) {
+            if ("0".equals(resJson.getString("code"))) {
                 telegramNotifier.send(String.format("✅ okx 设置杠杆成功: %s %s", symbol, lever));
             } else {
-                System.err.println("❌ okx 设置杠杆失败: " + resJson.getString("msg"));
-                telegramNotifier.send(String.format("✅ okx 设置杠杆失败: %s %s %s %s", symbol, lever, resJson.getString("msg")));
+                throw new RuntimeException(resJson.getString("msg"));
             }
         } catch (Exception e) {
-            log.error("okx setLever error", e);
-            e.printStackTrace();
+            telegramNotifier.send(String.format("🚫 okx 设置杠杆失败: %s %s %s", symbol, lever, e.getMessage()));
+            throw new RuntimeException("🚫 okx 设置杠杆失败 " + symbol);
         }
     }
 
@@ -276,13 +312,12 @@ public class OkxApiService implements ExchangeService {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
             if ("0".equals(resJson.getString("code"))) {
-                telegramNotifier.send(String.format("✅ Bitget 开仓成功: %s %s %s", symbol, buySellEnum.getOkxCode(), buySellEnum.getOkxCode()));
+                telegramNotifier.send(String.format("✅ okx 下单成功: %s %s %s", symbol, buySellEnum.getOkxCode(), positionSideEnum.getOkxCode()));
             } else {
-                System.err.println("❌ Bitget 开仓失败: " + resJson.getString("msg"));
-                telegramNotifier.send(String.format("✅ Bitget 开仓失败: %s %s %s %s", symbol, buySellEnum.getOkxCode(), buySellEnum.getOkxCode(), resJson.getString("msg")));
+                throw new RuntimeException(resJson.getString("msg"));
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            telegramNotifier.send(String.format("🚫 okx 下单失败: %s %s %s %s", symbol, buySellEnum.getOkxCode(), positionSideEnum.getOkxCode(), e.getMessage()));
         }
     }
 

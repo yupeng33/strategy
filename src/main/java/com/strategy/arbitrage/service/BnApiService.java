@@ -139,12 +139,9 @@ public class BnApiService implements ExchangeService {
 
     private static final String tickerLimit = "/fapi/v1/exchangeInfo";
     @Override
-    public List<TickerLimit> tickerLimit(String symbol) {
+    public List<TickerLimit> tickerLimit() {
         String url = baseUrl + tickerLimit;
         HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
-        if (StringUtils.hasLength(symbol)) {
-            builder.addQueryParameter("symbol", symbol);
-        }
         Request request = new Request.Builder().url(builder.build()).build();
 
         List<TickerLimit> result = new ArrayList<>();
@@ -209,7 +206,7 @@ public class BnApiService implements ExchangeService {
                 JSONObject pos = arr.getJSONObject(i);
                 BigDecimal positionAmt = new BigDecimal(pos.getString("positionAmt"));
                 if (positionAmt.abs().compareTo(BigDecimal.ZERO) > 0) {
-                    pos.put("exchange", "bn");
+                    pos.put("exchange", ExchangeEnum.BINANCE.getAbbr());
                     result.add(pos);
                 }
             }

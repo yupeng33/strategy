@@ -121,14 +121,10 @@ public class BgApiService implements ExchangeService {
 
     private static final String tickerLimitUrl = "/api/v2/mix/market/contracts";
     @Override
-    public List<TickerLimit> tickerLimit(String symbol) {
+    public List<TickerLimit> tickerLimit() {
         String url = baseUrl + tickerLimitUrl;
         HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
         builder.addQueryParameter("productType", "USDT-FUTURES");
-
-        if (StringUtils.hasLength(symbol)) {
-            builder.addQueryParameter("symbol", symbol);
-        }
         Request request = new Request.Builder().url(builder.build()).build();
 
         List<TickerLimit> result = new ArrayList<>();
@@ -187,7 +183,7 @@ public class BgApiService implements ExchangeService {
                     JSONObject pos = arr.getJSONObject(i);
                     BigDecimal positionAmt = new BigDecimal(pos.getString("total"));
                     if (positionAmt.compareTo(BigDecimal.ZERO) > 0) {
-                        pos.put("exchange", "bg");
+                        pos.put("exchange", ExchangeEnum.BITGET.getAbbr());
                         result.add(pos);
                     }
                 }
