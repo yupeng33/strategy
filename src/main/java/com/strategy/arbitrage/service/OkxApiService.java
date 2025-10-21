@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -55,7 +56,7 @@ public class OkxApiService implements ExchangeService {
         builder.addQueryParameter("instId", "ANY");
 
         if (StringUtils.hasLength(symbol)) {
-            builder.addQueryParameter("symbol", symbol);
+            builder.addQueryParameter("instId", CommonUtil.convertOkxSymbol(symbol));
         }
         Request request = new Request.Builder().url(builder.build()).build();
 
@@ -89,15 +90,18 @@ public class OkxApiService implements ExchangeService {
         }
     }
 
-    private static final String priceUrl = "/api/v5/market/tickers?instType=SWAP";
+    private static final String singlePriceUrl = "/api/v5/market/ticker";
+    private static final String priceUrl = "/api/v5/market/tickers";
+    @Override
     public List<Price> price(String symbol) {
-        String url = baseUrl + priceUrl;
+        String url = baseUrl + (StringUtils.hasLength(symbol) ? singlePriceUrl : priceUrl);
         HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
-        builder.addQueryParameter("instType", "SWAP");
-        builder.addQueryParameter("instId", "ANY");
 
         if (StringUtils.hasLength(symbol)) {
-            builder.addQueryParameter("symbol", symbol);
+            builder.addQueryParameter("instId", CommonUtil.convertOkxSymbol(symbol));
+        } else {
+            builder.addQueryParameter("instType", "SWAP");
+            builder.addQueryParameter("instId", "ANY");
         }
         Request request = new Request.Builder().url(builder.build()).build();
 
@@ -112,11 +116,20 @@ public class OkxApiService implements ExchangeService {
 
             JSONArray arr = json.getJSONArray("data");
             for (int i = 0; i < arr.length(); i++) {
-                JSONObject fundRate = arr.getJSONObject(i);
+                JSONObject priceInfo = arr.getJSONObject(i);
                 Price price = new Price();
-                price.setSymbol(CommonUtil.normalizeSymbol(fundRate.getString("instId"), ExchangeEnum.OKX.getAbbr()));
-                price.setPrice(Double.parseDouble(fundRate.getString("last")));
+                price.setSymbol(CommonUtil.normalizeSymbol(priceInfo.getString("instId"), ExchangeEnum.OKX.getAbbr()));
+                price.setPrice(Double.parseDouble(priceInfo.getString("last")));
+
+                price.setScale(CommonUtil.getMaxDecimalPlaces(
+                        new BigDecimal(priceInfo.getString("open24h")).stripTrailingZeros().toPlainString(),
+                        new BigDecimal(priceInfo.getString("low24h")).stripTrailingZeros().toPlainString(),
+                        new BigDecimal(priceInfo.getString("high24h")).stripTrailingZeros().toPlainString()));
                 result.add(price);
+            }
+
+            if (StringUtils.hasLength(symbol)) {
+                return result.stream().filter(e -> e.getSymbol().equals(symbol)).collect(Collectors.toList());
             }
             return result;
         } catch (Exception e) {
@@ -226,11 +239,11 @@ public class OkxApiService implements ExchangeService {
     public void setLever(String symbol, Integer lever) {
         String url = baseUrl + setLeverUrl;
         JSONObject json = new JSONObject();
-        json.put("instId", symbol);
+        json.put("instId", CommonUtil.convertOkxSymbol(symbol));
         json.put("mgnMode", "cross");
         json.put("lever", lever);
 
-        String timestamp = CommonUtil.getTimestamp();
+        String timestamp = CommonUtil.getISOTimestamp();
         String body = json.toString();
         String preSign = timestamp + "POST" + setLeverUrl + body;
         String signature = ApiSignature.hmacSha256(preSign, secretKey);
@@ -268,7 +281,7 @@ public class OkxApiService implements ExchangeService {
 
         // ✅ 校验并调整数量
         // 计算 size 的小数位数
-        double finalQuantity = CommonUtil.normalizePrice(quantity, String.valueOf(tickerLimit.getStepSize()), RoundingMode.FLOOR);
+        double finalQuantity = CommonUtil.normalizePrice(quantity, price(symbol).get(0).getScale(), RoundingMode.FLOOR);
         if (finalQuantity <= 0) {
             throw new RuntimeException("🚫 okx 无法下单，数量无效: " + symbol);
         }
@@ -288,14 +301,14 @@ public class OkxApiService implements ExchangeService {
         // 平多：卖出平多（side 填写 sell；posSide 填写 long ）
         // 平空：买入平空（side 填写 buy； posSide 填写 short ）
         JSONObject json = new JSONObject();
-        json.put("instId", symbol);
+        json.put("instId", CommonUtil.convertOkxSymbol(symbol));
         json.put("tdMode", "cross");
         json.put("side", buySellEnum.getOkxCode());             // buy/sell
         json.put("posSide", positionSideEnum.getOkxCode());     // long/short
         json.put("ordType", tradeTypeEnum.getOkxCode());        // limit/market
         json.put("sz", String.valueOf(quantity));
 
-        String timestamp = CommonUtil.getTimestamp();
+        String timestamp = CommonUtil.getISOTimestamp();
         String body = json.toString();
         String preSign = timestamp + "POST" + "/api/v5/trade/order" + body;
         String signature = ApiSignature.hmacSha256(preSign, secretKey);

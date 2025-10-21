@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -106,11 +107,20 @@ public class BgApiService implements ExchangeService {
             }
             JSONArray arr = json.getJSONArray("data");
             for (int i = 0; i < arr.length(); i++) {
-                JSONObject fundRate = arr.getJSONObject(i);
+                JSONObject priceInfo = arr.getJSONObject(i);
                 Price price = new Price();
-                price.setSymbol(CommonUtil.normalizeSymbol(fundRate.getString("symbol"), ExchangeEnum.BITGET.getAbbr()));
-                price.setPrice(Double.parseDouble(fundRate.getString("lastPr")));
+                price.setSymbol(CommonUtil.normalizeSymbol(priceInfo.getString("symbol"), ExchangeEnum.BITGET.getAbbr()));
+                price.setPrice(Double.parseDouble(priceInfo.getString("lastPr")));
+
+                price.setScale(CommonUtil.getMaxDecimalPlaces(
+                        new BigDecimal(priceInfo.getString("high24h")).stripTrailingZeros().toPlainString(),
+                        new BigDecimal(priceInfo.getString("low24h")).stripTrailingZeros().toPlainString(),
+                        new BigDecimal(priceInfo.getString("open24h")).stripTrailingZeros().toPlainString()));
                 result.add(price);
+            }
+
+            if (StringUtils.hasLength(symbol)) {
+                return result.stream().filter(e -> e.getSymbol().equals(symbol)).collect(Collectors.toList());
             }
             return result;
         } catch (Exception e) {
@@ -243,7 +253,7 @@ public class BgApiService implements ExchangeService {
 
         // ✅ 校验并调整数量
         // 计算 size 的小数位数
-        double finalQuantity = CommonUtil.normalizePrice(quantity, String.valueOf(tickerLimit.getStepSize()), RoundingMode.FLOOR);
+        double finalQuantity = CommonUtil.normalizePrice(quantity, price(symbol).get(0).getScale(), RoundingMode.FLOOR);
         if (finalQuantity <= 0) {
             throw new RuntimeException("🚫 bg 无法下单，数量无效: " + symbol);
         }

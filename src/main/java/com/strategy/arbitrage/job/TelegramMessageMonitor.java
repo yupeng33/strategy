@@ -85,7 +85,7 @@ public class TelegramMessageMonitor {
                     tradeService.trade(OperateEnum.CLOSE, commands[1], commands[2], commands[3], commands[4], null);
                 } else if (text.startsWith("/testTrade")) {
                     // /testTrade open long bg COAIUSDT 10 5
-                    tradeService.testTrade(OperateEnum.getByAbbr(commands[1]), commands[2], commands[3], commands[4], commands[5], commands[6]);
+                    tradeService.order(OperateEnum.getByAbbr(commands[1]), commands[2], commands[3], commands[4], commands[5], commands[6]);
                 } else {
                     sendMessage(chatId, "支持命令：/open /close 参数 {exchange1} {exchange2} {symbol} {margin} {lever}");
                     sendMessage(chatId, "ex：支持命令：/open okx bn COAIUSDT 2000 5");

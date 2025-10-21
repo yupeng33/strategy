@@ -10,10 +10,6 @@ import java.time.format.DateTimeFormatter;
 
 public class CommonUtil {
 
-    public static String getTimestamp() {
-        return String.valueOf(System.currentTimeMillis());
-    }
-
     public static String getISOTimestamp() {
         // 获取当前时间（UTC）
         ZonedDateTime utcTime = ZonedDateTime.now(ZoneOffset.UTC);
@@ -38,8 +34,28 @@ public class CommonUtil {
         }
     }
 
-    public static double normalizePrice(double price, String template, RoundingMode roundingMode) {
-        int scale = new BigDecimal(template).stripTrailingZeros().scale();
+    public static String convertOkxSymbol(String symbol) {
+        return symbol.split("USDT")[0] + "-USDT-SWAP";
+    }
+
+    public static double normalizePrice(double price, Integer scale, RoundingMode roundingMode) {
         return new BigDecimal(Double.toString(price)).setScale(scale, roundingMode).doubleValue();
+    }
+
+    public static int getMaxDecimalPlaces(String... numberStrings) {
+        if (numberStrings == null || numberStrings.length == 0) {
+            return 0;
+        }
+
+        int max = 0;
+        for (String numStr : numberStrings) {
+            if (numStr == null || numStr.isEmpty()) {
+                continue;
+            }
+            int dotIndex = numStr.indexOf('.');
+            int decimalPlaces = (dotIndex == -1) ? 0 : numStr.length() - dotIndex - 1;
+            max = Math.max(max, decimalPlaces);
+        }
+        return max;
     }
 }

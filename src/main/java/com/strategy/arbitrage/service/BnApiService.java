@@ -124,11 +124,19 @@ public class BnApiService implements ExchangeService {
             }
             JSONArray arr = new JSONArray(res);
             for (int i = 0; i < arr.length(); i++) {
-                JSONObject fundRate = arr.getJSONObject(i);
+                JSONObject priceInfo = arr.getJSONObject(i);
                 Price price = new Price();
-                price.setSymbol(CommonUtil.normalizeSymbol(fundRate.getString("symbol"), ExchangeEnum.BINANCE.getAbbr()));
-                price.setPrice(Double.parseDouble(fundRate.getString("lastPrice")));
+                price.setSymbol(CommonUtil.normalizeSymbol(priceInfo.getString("symbol"), ExchangeEnum.BINANCE.getAbbr()));
+                price.setPrice(Double.parseDouble(priceInfo.getString("lastPrice")));
+                price.setScale(CommonUtil.getMaxDecimalPlaces(
+                        new BigDecimal(priceInfo.getString("openPrice")).stripTrailingZeros().toPlainString(),
+                        new BigDecimal(priceInfo.getString("highPrice")).stripTrailingZeros().toPlainString(),
+                        new BigDecimal(priceInfo.getString("lowPrice")).stripTrailingZeros().toPlainString()));
                 result.add(price);
+            }
+
+            if (StringUtils.hasLength(symbol)) {
+                return result.stream().filter(e -> e.getSymbol().equals(symbol)).collect(Collectors.toList());
             }
             return result;
         } catch (Exception e) {
@@ -267,7 +275,7 @@ public class BnApiService implements ExchangeService {
         }
 
         // ✅ 校验并调整数量
-        double finalQuantity = CommonUtil.normalizePrice(quantity, String.valueOf(tickerLimit.getStepSize()), RoundingMode.FLOOR);
+        double finalQuantity = CommonUtil.normalizePrice(quantity, price(symbol).get(0).getScale(), RoundingMode.FLOOR);
         if (finalQuantity <= 0) {
             throw new RuntimeException("🚫 bn 无法下单，数量无效: " + symbol);
         }
