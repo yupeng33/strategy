@@ -17,7 +17,7 @@ import java.util.Map;
 public enum ExchangeEnum {
     OKX("okx", "okx", OkxApiService.class),
     BINANCE("binance", "bn", BnApiService.class),
-    BITGET("bitget", "bt", BgApiService.class);
+    BITGET("bitget", "bg", BgApiService.class);
 
     private final String name;
     private final String abbr;

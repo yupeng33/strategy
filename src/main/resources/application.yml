@@ -11,7 +11,7 @@ binance:
 bitget:
   api-key: bg_5e15d05a7e79e3b19398baef93a5ec3c
   secret-key: 15e39da020f6ff0327f457ec23a73628fc1d82a2d30212ca0d7b056e6fdebc38
-  pass-phrase: Yupeng258461.
+  pass-phrase: Yupeng33
   base-url: https://api.bitget.com
 
 okx:
@@ -28,3 +28,6 @@ telegram:
 alert:
   price-diff-per: 0.1
   fundRate-diff-per: 0.01
+
+
+order-price-diff-per: 0.0005

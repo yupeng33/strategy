@@ -84,10 +84,11 @@ public class BgApiService implements ExchangeService {
         }
     }
 
+    private static final String singlePriceUrl = "/api/v2/mix/market/ticker";
     private static final String priceUrl = "/api/v2/mix/market/tickers";
     @Override
     public List<Price> price(String symbol) {
-        String url = baseUrl + priceUrl;
+        String url = baseUrl + (StringUtils.hasLength(symbol) ? singlePriceUrl : priceUrl);
         HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
         builder.addQueryParameter("productType", "USDT-FUTURES");
 
@@ -113,14 +114,45 @@ public class BgApiService implements ExchangeService {
             }
             return result;
         } catch (Exception e) {
-            log.error("bitgetFundRate error", e);
+            log.error("bitget FundRate error", e);
             return new ArrayList<>();
-        }    }
+        }
+    }
 
+    private static final String tickerLimitUrl = "/api/v2/mix/market/contracts";
     @Override
     public List<TickerLimit> tickerLimit(String symbol) {
-        return null;
-    }
+        String url = baseUrl + tickerLimitUrl;
+        HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
+        builder.addQueryParameter("productType", "USDT-FUTURES");
+
+        if (StringUtils.hasLength(symbol)) {
+            builder.addQueryParameter("symbol", symbol);
+        }
+        Request request = new Request.Builder().url(builder.build()).build();
+
+        List<TickerLimit> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONObject json = new JSONObject(res);
+            if (!"00000".equals(json.getString("code"))) {
+                throw new RuntimeException("Bitget Error: " + json.getString("msg"));
+            }
+            JSONArray arr = json.getJSONArray("data");
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject tickerLimiterJson = arr.getJSONObject(i);
+                TickerLimit tickerLimit = new TickerLimit();
+                tickerLimit.setSymbol(CommonUtil.normalizeSymbol(tickerLimiterJson.getString("symbol"), ExchangeEnum.BITGET.getAbbr()));
+                tickerLimit.setMinQty(Double.parseDouble(tickerLimiterJson.getString("minTradeNum")));
+                tickerLimit.setMaxQty(Double.parseDouble(tickerLimiterJson.getString("maxPositionNum")));
+                tickerLimit.setStepSize(Double.parseDouble(tickerLimiterJson.getString("priceEndStep")));
+                result.add(tickerLimit);
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("bitgetFundRate error", e);
+            return new ArrayList<>();
+        }      }
 
     public static final String positionUrl = "/api/v2/mix/position/all-position";
     public List<JSONObject> position() {
@@ -162,49 +194,45 @@ public class BgApiService implements ExchangeService {
             }
             return result;
         } catch (Exception e) {
-            log.error("bitgetPosition error", e);
+            log.error("bitget Position error", e);
             return new ArrayList<>();
         }
     }
 
-    private static final String setLeverUrl = "/fapi/v2/leverage";
+    private static final String setLeverUrl = "/api/v2/mix/account/set-leverage";
     public void setLever(String symbol, Integer lever) {
-        Map<String, String> params = new HashMap<>();
-        params.put("symbol", symbol);
-        params.put("leverage", String.valueOf(lever));
+        String url = baseUrl + setLeverUrl;
 
-        // 1. 构造查询字符串
-        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(baseUrl + setLeverUrl);
-        params.forEach(builder::queryParam);
+        JSONObject json = new JSONObject();
+        json.put("symbol", symbol);
+        json.put("productType", "USDT-FUTURES");
+        json.put("marginCoin", "USDT");   // cross / isolated
+        json.put("leverage", lever);
 
-        // 添加时间戳
-        long timestamp = System.currentTimeMillis();
-        builder.queryParam("timestamp", timestamp);
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String body = json.toString();
+        String preSign = timestamp + "POST" + setLeverUrl + body;
+        String signature = ApiSignature.hmacSha256(preSign, secretKey);
 
-        // 2. 生成签名
-        String queryString = builder.build().getQuery();
-        String signature = ApiSignature.hmacSha256Hex(queryString, secretKey);
-
-        // 3. 最终URL：添加 signature
-        String url = builder.queryParam("signature", signature).toUriString();
-
-        // 4. 创建请求头
         Headers headers = Headers.of(
-                "X-MBX-APIKEY", apiKey,
-                "Content-Type", "application/json");
+                "ACCESS-KEY", apiKey,
+                "ACCESS-SIGN", signature,
+                "ACCESS-TIMESTAMP", timestamp,
+                "ACCESS-PASSPHRASE", passPhrase,
+                "Content-Type", "application/json"
+        );
 
-        try (Response response = HttpUtil.send("POST", url, null , headers)) {
+        try (Response response = HttpUtil.send("POST", url, RequestBody.create(body, MediaType.get("application/json")), headers)) {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
-            if (resJson.has("orderId")) {
+            if ("00000".equals(resJson.getString("code"))) {
                 telegramNotifier.send(String.format("✅ bg 设置杠杆成功: %s %s", symbol, lever));
             } else {
-                System.err.println("❌ bg 设置杠杆失败: " + resJson.getString("msg"));
-                telegramNotifier.send(String.format("✅ bg 设置杠杆失败: %s %s %s %s", symbol, lever, resJson.getString("msg")));
+                throw new RuntimeException(resJson.getString("msg"));
             }
         } catch (Exception e) {
-            log.error("bg setLever error", e);
-            e.printStackTrace();
+            telegramNotifier.send(String.format("🚫 bg 设置杠杆失败: %s %s %s", symbol, lever, e.getMessage()));
+            throw new RuntimeException("🚫 bg 设置杠杆失败 " + symbol);
         }
     }
 
@@ -243,9 +271,14 @@ public class BgApiService implements ExchangeService {
         json.put("marginMode", "crossed");   // cross / isolated
         json.put("marginCoin", "USDT");   // cross / isolated
         json.put("size", String.valueOf(quantity));
-        json.put("side", positionSideEnum.getBgCode());               // buy/close
-        json.put("tradeSide", "open");
+        json.put("side", positionSideEnum.getBgPlaceOrderCode());               // 下单时，buy代表long sell代表short
+        json.put("tradeSide", buySellEnum.getBgCode());               // open/close
         json.put("orderType", tradeTypeEnum.getBgCode());        // limit/market
+
+        if (tradeTypeEnum == TradeTypeEnum.LIMIT) {
+            json.put("force", "GTC");
+            json.put("price", String.valueOf(price));
+        }
 
         String timestamp = String.valueOf(System.currentTimeMillis());
         String body = json.toString();
@@ -264,13 +297,12 @@ public class BgApiService implements ExchangeService {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
             if ("00000".equals(resJson.getString("code"))) {
-                telegramNotifier.send(String.format("✅ Bitget 开仓成功: %s %s %s", symbol, buySellEnum.getBgCode(), buySellEnum.getBgCode()));
+                telegramNotifier.send(String.format("✅ bg 下单成功: %s %s %s", symbol, buySellEnum.getBgCode(), positionSideEnum.getBgCode()));
             } else {
-                System.err.println("❌ Bitget 开仓失败: " + resJson.getString("msg"));
-                telegramNotifier.send(String.format("✅ Bitget 开仓失败: %s %s %s %s", symbol, buySellEnum.getBgCode(), buySellEnum.getBgCode(), resJson.getString("msg")));
+                throw new RuntimeException(resJson.getString("msg"));
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            telegramNotifier.send(String.format("🚫 bg 下单失败: %s %s %s %s", symbol, buySellEnum.getBgCode(), positionSideEnum.getBgCode(), e.getMessage()));
         }
     }
 

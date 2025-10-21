@@ -39,7 +39,7 @@ public class TelegramMessageMonitor {
         baseUrl = "https://api.telegram.org/bot" + botToken;
     }
 
-//    @Scheduled(fixedDelay = 2000) // 每 2 秒轮询一次
+    @Scheduled(fixedDelay = 2000) // 每 2 秒轮询一次
     public void poll() {
         fetchUpdates();
     }
@@ -84,7 +84,7 @@ public class TelegramMessageMonitor {
                     // /close okx bn COAIUSDT 2000 5
                     tradeService.trade(OperateEnum.CLOSE, commands[1], commands[2], commands[3], commands[4], null);
                 } else if (text.startsWith("/testTrade")) {
-                    // /testTrade open long bn COAIUSDT 2000 5
+                    // /testTrade open long bg COAIUSDT 10 5
                     tradeService.testTrade(OperateEnum.getByAbbr(commands[1]), commands[2], commands[3], commands[4], commands[5], commands[6]);
                 } else {
                     sendMessage(chatId, "支持命令：/open /close 参数 {exchange1} {exchange2} {symbol} {margin} {lever}");

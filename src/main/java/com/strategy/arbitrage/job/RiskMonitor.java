@@ -40,7 +40,7 @@ public class RiskMonitor {
         this.okxApiService = okxApiService;
     }
 
-    @Scheduled(fixedRate = 60 * 1000,  initialDelay = 10 * 1000)
+//    @Scheduled(fixedRate = 60 * 1000,  initialDelay = 10 * 1000)
     public void checkRisk() {
         System.out.println("🔍 开始计算持仓价格偏离");
         if (StaticConstant.binanceFunding.isEmpty() || StaticConstant.bitgetPrice.isEmpty() || StaticConstant.okxFunding.isEmpty()) {

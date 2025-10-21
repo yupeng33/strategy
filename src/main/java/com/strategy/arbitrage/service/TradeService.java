@@ -7,6 +7,7 @@ import com.strategy.arbitrage.model.Position;
 import com.strategy.arbitrage.util.CommonUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -18,6 +19,9 @@ import java.util.Map;
 @Slf4j
 @Service
 public class TradeService {
+
+    @Value("${order-price-diff-per:0.001}")
+    private double orderPriceDiffPer;
 
     @Resource
     private ExchangeServiceFactory exchangeServiceFactory;
@@ -89,29 +93,29 @@ public class TradeService {
         if (operateEnum == OperateEnum.OPEN) {
             if (longShort.equalsIgnoreCase("long")) {
                 buySellEnum = BuySellEnum.BUY;      // 买入开多
-                finalPrice = price * 0.999;
+                finalPrice = price * (1 - orderPriceDiffPer);
                 positionSideEnum = PositionSideEnum.LONG;
                 finalPrice = CommonUtil.normalizePrice(finalPrice, String.valueOf(price), RoundingMode.FLOOR);
             } else {
-                buySellEnum = BuySellEnum.SELL;     // 卖出开空
-                finalPrice = price * 1.001;
+                buySellEnum = ExchangeEnum.BITGET.getAbbr().equals(exchange) ? BuySellEnum.BUY : BuySellEnum.SELL;     // 卖出开空
+                finalPrice = price * (1 + orderPriceDiffPer);
                 positionSideEnum = PositionSideEnum.SHORT;
                 finalPrice = CommonUtil.normalizePrice(finalPrice, String.valueOf(price), RoundingMode.CEILING);
             }
 
-            log.error("open price = {}, finalPrice = {}", price, finalPrice);
+            log.info("open price = {}, finalPrice = {}", price, finalPrice);
             // 开仓计算合约张数
             quantity = exchangeService.calQuantity(symbol, Double.parseDouble(margin), Integer.parseInt(lever), finalPrice);
             exchangeService.setLever(symbol, Integer.parseInt(lever));
         } else {
             if (longShort.equalsIgnoreCase("short")) {
-                buySellEnum = BuySellEnum.BUY;      // 买入平空
-                finalPrice = price * 0.999;
+                buySellEnum = ExchangeEnum.BITGET.getAbbr().equals(exchange) ? BuySellEnum.SELL : BuySellEnum.BUY;      // 买入平空
+                finalPrice = price * (1 - orderPriceDiffPer);
                 finalPrice = CommonUtil.normalizePrice(finalPrice, String.valueOf(price), RoundingMode.FLOOR);
                 positionSideEnum = PositionSideEnum.SHORT;
             } else {
                 buySellEnum = BuySellEnum.SELL;     // 卖出平多
-                finalPrice = price * 1.001;
+                finalPrice = price * (1 + orderPriceDiffPer);
                 finalPrice = CommonUtil.normalizePrice(finalPrice, String.valueOf(price), RoundingMode.CEILING);
                 positionSideEnum = PositionSideEnum.LONG;
             }

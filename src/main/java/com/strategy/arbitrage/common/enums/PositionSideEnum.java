@@ -9,10 +9,11 @@ import lombok.Getter;
 @Getter
 @AllArgsConstructor
 public enum PositionSideEnum {
-    LONG("LONG", "buy", "long"),
-    SHORT("SHORT", "sell", "short");
+    LONG("LONG", "buy", "long", "long"),
+    SHORT("SHORT", "sell", "short", "short");
 
     private final String bnCode;
+    private final String bgPlaceOrderCode;
     private final String bgCode;
     private final String okxCode;
 

@@ -10,8 +10,8 @@ import lombok.Getter;
 @AllArgsConstructor
 public enum BuySellEnum {
 
-    BUY("BUY", "", "buy"),
-    SELL("SELL", "", "sell");
+    BUY("BUY", "open", "buy"),
+    SELL("SELL", "close", "sell");
 
     private final String bnCode;
     private final String bgCode;

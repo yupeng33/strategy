@@ -11,7 +11,7 @@ import lombok.Getter;
 public enum TradeTypeEnum {
 
     LIMIT("LIMIT", "limit", "limit"),
-    MARKET("MARKET", "limit", "market"),
+    MARKET("MARKET", "market", "market"),
     STOP_MARKET("STOP_MARKET", "", ""),
     ;
 
