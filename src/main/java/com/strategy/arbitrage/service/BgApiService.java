@@ -155,7 +155,7 @@ public class BgApiService implements ExchangeService {
                     JSONObject pos = arr.getJSONObject(i);
                     BigDecimal positionAmt = new BigDecimal(pos.getString("total"));
                     if (positionAmt.compareTo(BigDecimal.ZERO) > 0) {
-                        pos.put("exchange", "bitget");
+                        pos.put("exchange", "bg");
                         result.add(pos);
                     }
                 }
@@ -219,7 +219,7 @@ public class BgApiService implements ExchangeService {
 
         // ✅ 校验并调整数量
         // 计算 size 的小数位数
-        double finalQuantity = CommonUtil.normalizePrice(quantity, String.valueOf(tickerLimit.getStepSize()));
+        double finalQuantity = CommonUtil.normalizePrice(quantity, String.valueOf(tickerLimit.getStepSize()), RoundingMode.FLOOR);
         if (finalQuantity <= 0) {
             throw new RuntimeException("🚫 bg 无法下单，数量无效: " + symbol);
         }

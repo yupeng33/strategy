@@ -232,7 +232,7 @@ public class OkxApiService implements ExchangeService {
 
         // ✅ 校验并调整数量
         // 计算 size 的小数位数
-        double finalQuantity = CommonUtil.normalizePrice(quantity, String.valueOf(tickerLimit.getStepSize()));
+        double finalQuantity = CommonUtil.normalizePrice(quantity, String.valueOf(tickerLimit.getStepSize()), RoundingMode.FLOOR);
         if (finalQuantity <= 0) {
             throw new RuntimeException("🚫 okx 无法下单，数量无效: " + symbol);
         }

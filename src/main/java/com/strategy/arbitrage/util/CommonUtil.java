@@ -36,8 +36,8 @@ public class CommonUtil {
         }
     }
 
-    public static double normalizePrice(double price, String template) {
+    public static double normalizePrice(double price, String template, RoundingMode roundingMode) {
         int scale = new BigDecimal(template).stripTrailingZeros().scale();
-        return new BigDecimal(Double.toString(price)).setScale(scale, RoundingMode.FLOOR).doubleValue();
+        return new BigDecimal(Double.toString(price)).setScale(scale, roundingMode).doubleValue();
     }
 }

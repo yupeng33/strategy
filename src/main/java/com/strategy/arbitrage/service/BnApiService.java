@@ -209,7 +209,7 @@ public class BnApiService implements ExchangeService {
                 JSONObject pos = arr.getJSONObject(i);
                 BigDecimal positionAmt = new BigDecimal(pos.getString("positionAmt"));
                 if (positionAmt.abs().compareTo(BigDecimal.ZERO) > 0) {
-                    pos.put("exchange", "binance");
+                    pos.put("exchange", "bn");
                     result.add(pos);
                 }
             }
@@ -270,7 +270,7 @@ public class BnApiService implements ExchangeService {
         }
 
         // ✅ 校验并调整数量
-        double finalQuantity = CommonUtil.normalizePrice(quantity, String.valueOf(tickerLimit.getStepSize()));
+        double finalQuantity = CommonUtil.normalizePrice(quantity, String.valueOf(tickerLimit.getStepSize()), RoundingMode.FLOOR);
         if (finalQuantity <= 0) {
             throw new RuntimeException("🚫 bn 无法下单，数量无效: " + symbol);
         }
@@ -320,7 +320,7 @@ public class BnApiService implements ExchangeService {
                 telegramNotifier.send(String.format("✅ bn 下单成功: %s %s %s %s",
                         symbol, buySellEnum.getBnCode(), positionSideEnum.getBnCode(), quantity));
             } else {
-                throw new RuntimeException("🚫 bn 下单失败 " + symbol + resJson.getString("msg"));
+                throw new RuntimeException("🚫 bn 下单失败 " + symbol + " " + resJson.getString("msg"));
             }
         } catch (Exception e) {
             telegramNotifier.send(String.format("✅ bn 下单失败: %s %s", symbol, e.getMessage()));

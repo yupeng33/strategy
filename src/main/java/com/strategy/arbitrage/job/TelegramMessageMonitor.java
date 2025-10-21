@@ -39,7 +39,7 @@ public class TelegramMessageMonitor {
         baseUrl = "https://api.telegram.org/bot" + botToken;
     }
 
-    @Scheduled(fixedDelay = 2000) // 每 2 秒轮询一次
+//    @Scheduled(fixedDelay = 2000) // 每 2 秒轮询一次
     public void poll() {
         fetchUpdates();
     }

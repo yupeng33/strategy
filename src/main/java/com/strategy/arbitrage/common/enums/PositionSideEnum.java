@@ -23,24 +23,24 @@ public enum PositionSideEnum {
                     if (value.getBnCode().equals(positionSide)) {
                         return value;
                     }
-                    throw new RuntimeException("BN无效的PositionSideEnum");
                 }
+                throw new RuntimeException("BN无效的PositionSideEnum");
             }
             case BITGET -> {
                 for (PositionSideEnum value : values()) {
                     if (value.getBgCode().equals(positionSide)) {
                         return value;
                     }
-                    throw new RuntimeException("BG无效的PositionSideEnum");
                 }
+                throw new RuntimeException("BG无效的PositionSideEnum");
             }
             case OKX -> {
                 for (PositionSideEnum value : values()) {
                     if (value.getOkxCode().equals(positionSide)) {
                         return value;
                     }
-                    throw new RuntimeException("OKX无效的PositionSideEnum");
                 }
+                throw new RuntimeException("OKX无效的PositionSideEnum");
             }
         }
         throw new RuntimeException("无效的ExchangeEnum");

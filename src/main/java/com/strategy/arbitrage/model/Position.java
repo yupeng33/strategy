@@ -19,47 +19,46 @@ public class Position {
 
     public static Position convert(JSONObject jsonObject) {
         Position p = new Position();
-        String exchange = jsonObject.getString("exchange");
-        p.setExchange(ExchangeEnum.valueOf(exchange));
+        ExchangeEnum exchangeEnum = ExchangeEnum.getByAbbr(jsonObject.getString("exchange"));
+        p.setExchange(exchangeEnum);
         p.setSymbol(jsonObject.getString("symbol"));
         p.setCurrentPrice(Double.parseDouble(jsonObject.getString("markPrice")));
 
         double positionAmt;
         double leverage;
 
-        switch (exchange) {
-            case "binance":
+        switch (exchangeEnum) {
+            case BINANCE -> {
                 p.setEntryPrice(Double.parseDouble(jsonObject.getString("entryPrice")));
                 positionAmt = Double.parseDouble(jsonObject.getString("positionAmt"));
                 p.setPositionAmt(positionAmt);
-                p.setPositionSideEnum(PositionSideEnum.getByCode(p.getExchange(), jsonObject.getString("positionSide")));
-
+                p.setPositionSideEnum(PositionSideEnum.getByCode(exchangeEnum, jsonObject.getString("positionSide")));
                 leverage = Integer.parseInt(jsonObject.getString("leverage"));
-                p.setMargin(positionAmt/leverage);
+                p.setMargin(positionAmt / leverage);
                 p.setUnRealizedProfit(Double.parseDouble(jsonObject.getString("unRealizedProfit")));
-                break;
-            case "bitget":
+            }
+            case BITGET -> {
                 p.setEntryPrice(Double.parseDouble(jsonObject.getString("openPriceAvg")));
                 p.setPositionSideEnum(PositionSideEnum.getByCode(p.getExchange(), jsonObject.getString("positionSide")));
                 // TODO: 持有仓位，待确定
 
                 positionAmt = Double.parseDouble(jsonObject.getString("marginSize"));
                 leverage = Integer.parseInt(jsonObject.getString("leverage"));
-                p.setMargin(positionAmt/leverage);
+                p.setMargin(positionAmt / leverage);
                 p.setUnRealizedProfit(Double.parseDouble(jsonObject.getString("unrealizedPL")));
-                break;
-            case "okx":
+            }
+            case OKX -> {
                 p.setEntryPrice(Double.parseDouble(jsonObject.getString("avgPx")));
-                p.setPositionSideEnum(PositionSideEnum.getByCode(p.getExchange(), jsonObject.getString("positionSide")));
+                p.setPositionSideEnum(PositionSideEnum.getByCode(p.getExchange(), jsonObject.getString("posSide")));
                 // TODO: 持有仓位，待确定
 
                 positionAmt = Double.parseDouble(jsonObject.getString("notionalUsd"));
                 leverage = Integer.parseInt(jsonObject.getString("lever"));
-                p.setMargin(positionAmt/leverage);
+                p.setMargin(positionAmt / leverage);
                 p.setUnRealizedProfit(Double.parseDouble(jsonObject.getString("upl")));
-                break;
-            default:
-                break;
+            }
+            default -> {
+            }
         }
         return p;
     }

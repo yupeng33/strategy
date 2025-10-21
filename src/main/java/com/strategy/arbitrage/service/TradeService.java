@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 
@@ -39,7 +40,7 @@ public class TradeService {
         if (fundingRateA == null || fundingRateB == null) {
             throw new RuntimeException("资金费率为空");
         }
-        Boolean openLongA = fundingRateA.getRate() < fundingRateB.getRate();
+        boolean openLongA = fundingRateA.getRate() < fundingRateB.getRate();
 
         // 根据保证金和杠杆，计算购买的合约张数
         ExchangeService exchangeServiceA = exchangeServiceFactory.getService(exchangeA);
@@ -51,11 +52,11 @@ public class TradeService {
         // 开多时挂单价=现价*0.99；开空时挂单价=现价*1.01
         double priceA = exchangeServiceA.price(symbol).get(0).getPrice();
         double finalPriceA = openLongA ? priceA * 0.999 : priceA * 1.001;
-        finalPriceA = CommonUtil.normalizePrice(finalPriceA, String.valueOf(priceA));
+        finalPriceA = CommonUtil.normalizePrice(finalPriceA, String.valueOf(priceA), RoundingMode.FLOOR);
 
         double priceB = exchangeServiceB.price(symbol).get(0).getPrice();
         double finalPriceB = openLongA ? priceB * 1.001 : priceB * 0.999;
-        finalPriceB = CommonUtil.normalizePrice(finalPriceB, String.valueOf(priceB));
+        finalPriceB = CommonUtil.normalizePrice(finalPriceB, String.valueOf(priceB), RoundingMode.FLOOR);
 
         if (priceA <= 0 || priceB <= 0) {
             throw new RuntimeException("金额不正确");
@@ -84,40 +85,45 @@ public class TradeService {
         BuySellEnum buySellEnum;
         PositionSideEnum positionSideEnum;
 
+        // TODO: price的小数位末尾为0时，不确定是否会删除0
         if (operateEnum == OperateEnum.OPEN) {
             if (longShort.equalsIgnoreCase("long")) {
                 buySellEnum = BuySellEnum.BUY;      // 买入开多
                 finalPrice = price * 0.999;
                 positionSideEnum = PositionSideEnum.LONG;
+                finalPrice = CommonUtil.normalizePrice(finalPrice, String.valueOf(price), RoundingMode.FLOOR);
             } else {
                 buySellEnum = BuySellEnum.SELL;     // 卖出开空
                 finalPrice = price * 1.001;
                 positionSideEnum = PositionSideEnum.SHORT;
+                finalPrice = CommonUtil.normalizePrice(finalPrice, String.valueOf(price), RoundingMode.CEILING);
             }
 
-            finalPrice = CommonUtil.normalizePrice(finalPrice, String.valueOf(price));
+            log.error("open price = {}, finalPrice = {}", price, finalPrice);
             // 开仓计算合约张数
             quantity = exchangeService.calQuantity(symbol, Double.parseDouble(margin), Integer.parseInt(lever), finalPrice);
+            exchangeService.setLever(symbol, Integer.parseInt(lever));
         } else {
             if (longShort.equalsIgnoreCase("short")) {
                 buySellEnum = BuySellEnum.BUY;      // 买入平空
-                finalPrice = price * 1.001;
+                finalPrice = price * 0.999;
+                finalPrice = CommonUtil.normalizePrice(finalPrice, String.valueOf(price), RoundingMode.FLOOR);
                 positionSideEnum = PositionSideEnum.SHORT;
             } else {
                 buySellEnum = BuySellEnum.SELL;     // 卖出平多
-                finalPrice = price * 0.999;
+                finalPrice = price * 1.001;
+                finalPrice = CommonUtil.normalizePrice(finalPrice, String.valueOf(price), RoundingMode.CEILING);
                 positionSideEnum = PositionSideEnum.LONG;
             }
+            log.error("close price = {}, finalPrice = {}", price, finalPrice);
 
             List<JSONObject> jsonObjects = exchangeService.position();
             List<Position> positionList = jsonObjects.stream().map(Position::convert).toList();
-            Position position = positionList.stream().filter(e -> e.getSymbol().equalsIgnoreCase(symbol)).findFirst().orElseThrow(() -> new RuntimeException("仓位获取失败"));
+            Position position = positionList.stream().filter(e -> e.getSymbol().equalsIgnoreCase(symbol) && e.getPositionAmt() != 0).findFirst().orElseThrow(() -> new RuntimeException("仓位获取失败"));
 
             // 关仓获取已有仓位
-            quantity = position.getPositionAmt();
+            quantity = Math.abs(position.getPositionAmt());
         }
-
-        exchangeService.setLever(symbol, Integer.parseInt(lever));
         exchangeService.placeOrder(symbol, buySellEnum, positionSideEnum, TradeTypeEnum.LIMIT, quantity, finalPrice);
     }
 
