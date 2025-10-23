@@ -28,6 +28,7 @@ telegram:
 alert:
   price-diff-per: 0.1
   fundRate-diff-per: 0.01
+  margin-diff-per: 0.01
 
 
 order-price-diff-per: 0.0005

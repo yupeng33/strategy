@@ -5,14 +5,14 @@ import lombok.Getter;
 
 @Getter
 @AllArgsConstructor
-public enum OperateEnum {
-    OPEN("open"),
-    CLOSE("close");
+public enum TelegramOperateEnum {
+    OPEN("/open"),
+    CLOSE("/close");
 
     private final String abbr;
 
-    public static OperateEnum getByAbbr(String abbr) {
-        for (OperateEnum value : values()) {
+    public static TelegramOperateEnum getByAbbr(String abbr) {
+        for (TelegramOperateEnum value : values()) {
             if (value.getAbbr().equalsIgnoreCase(abbr)) {
                 return value;
             }

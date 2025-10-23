@@ -286,7 +286,7 @@ public class OkxApiService implements ExchangeService {
             throw new RuntimeException("🚫 okx 无法下单，数量无效: " + symbol);
         }
 
-        System.out.println("📊 okx 下单数量: " + finalQuantity + " " + symbol);
+        log.info("📊 okx 下单数量: {} {}", finalQuantity, symbol);
         return finalQuantity;
     }
 
@@ -332,10 +332,5 @@ public class OkxApiService implements ExchangeService {
         } catch (Exception e) {
             telegramNotifier.send(String.format("🚫 okx 下单失败: %s %s %s %s", symbol, buySellEnum.getOkxCode(), positionSideEnum.getOkxCode(), e.getMessage()));
         }
-    }
-
-    @Override
-    public void closeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price) {
-        placeOrder(symbol, buySellEnum, positionSideEnum, tradeTypeEnum, quantity, price);
     }
 }

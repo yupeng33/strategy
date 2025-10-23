@@ -25,11 +25,11 @@ public class TradeService {
     @Resource
     private ExchangeServiceFactory exchangeServiceFactory;
 
-    public void trade(OperateEnum operateEnum, String exchangeA, String exchangeB, String symbol, String margin, String lever) {
-        switch (operateEnum) {
+    public void trade(TelegramOperateEnum telegramOperateEnum, String exchangeA, String exchangeB, String symbol, String margin, String lever) {
+        switch (telegramOperateEnum) {
             case OPEN -> doOpen(exchangeA, exchangeB, symbol, margin, lever);
             case CLOSE -> doClose(exchangeA, exchangeB, symbol);
-            default -> log.error("Unsupport operateEnum");
+            default -> log.error("Unsupport telegramOperateEnum");
         }
     }
 
@@ -44,16 +44,16 @@ public class TradeService {
             throw new RuntimeException("资金费率为空");
         }
         boolean openLongA = fundingRateA.getRate() < fundingRateB.getRate();
-        order(OperateEnum.OPEN, openLongA ? "long" : "short", exchangeA, symbol, margin, lever);
-        order(OperateEnum.OPEN, openLongA ? "short" : "long", exchangeB, symbol, margin, lever);
+        order(TelegramOperateEnum.OPEN, openLongA ? "long" : "short", exchangeA, symbol, margin, lever);
+        order(TelegramOperateEnum.OPEN, openLongA ? "short" : "long", exchangeB, symbol, margin, lever);
     }
 
     private void doClose(String exchangeA, String exchangeB, String symbol) {
-        order(OperateEnum.CLOSE, null, exchangeA, symbol, null, null);
-        order(OperateEnum.CLOSE, null, exchangeB, symbol, null, null);
+        order(TelegramOperateEnum.CLOSE, null, exchangeA, symbol, null, null);
+        order(TelegramOperateEnum.CLOSE, null, exchangeB, symbol, null, null);
     }
 
-    public void order(OperateEnum operateEnum, String longShort, String exchange, String symbol, String margin, String lever) {
+    public void order(TelegramOperateEnum telegramOperateEnum, String longShort, String exchange, String symbol, String margin, String lever) {
         ExchangeService exchangeService = exchangeServiceFactory.getService(exchange);
         Price priceInfo = exchangeService.price(symbol).get(0);
         double price = priceInfo.getPrice();
@@ -63,7 +63,7 @@ public class TradeService {
         BuySellEnum buySellEnum;
         PositionSideEnum positionSideEnum;
 
-        if (operateEnum == OperateEnum.OPEN) {
+        if (telegramOperateEnum == TelegramOperateEnum.OPEN) {
             if (longShort.equalsIgnoreCase("long")) {
                 buySellEnum = BuySellEnum.BUY;      // 买入开多
                 finalPrice = price * (1 - orderPriceDiffPer);

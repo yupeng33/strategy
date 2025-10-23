@@ -6,26 +6,18 @@ import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.service.BgApiService;
 import com.strategy.arbitrage.service.BnApiService;
 import com.strategy.arbitrage.service.OkxApiService;
-import com.strategy.arbitrage.util.CommonUtil;
-import org.json.JSONArray;
-import org.json.JSONObject;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Repository;
 
-import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
 
+@Slf4j
 @Repository
 public class TriExchangeFundingMonitor {
 
@@ -45,11 +37,11 @@ public class TriExchangeFundingMonitor {
     @Resource
     private OkxApiService okxApiService;
 
-    @Scheduled(fixedRate = 2 * 60 * 1000, initialDelay = 3 * 1000)
+    @Scheduled(fixedRate = POLLING_INTERVAL_MINUTES * 60 * 1000, initialDelay = 3 * 1000)
     public void run() {
         if (diffFundRateShow) {
-            System.out.println("🔍 三交易所资金费率监控系统启动（OKX + 币安 + Bitget）...");
-            System.out.println("📊 每 " + POLLING_INTERVAL_MINUTES + " 分钟输出资金费率差距最大的前 " + TOP_N + " 组合");
+            log.info("🔍 三交易所资金费率监控系统启动（OKX + 币安 + Bitget）...");
+            log.info("📊 每 {} 分钟输出资金费率差距最大的前 {} 组合", POLLING_INTERVAL_MINUTES, TOP_N);
 
             List<RateDiff> diffs = new ArrayList<>();
             // 两两对比：OKX vs 币安

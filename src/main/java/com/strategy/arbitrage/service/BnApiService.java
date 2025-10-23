@@ -280,7 +280,7 @@ public class BnApiService implements ExchangeService {
             throw new RuntimeException("🚫 bn 无法下单，数量无效: " + symbol);
         }
 
-        System.out.println("📊 bn 下单数量: " + finalQuantity + " " + symbol);
+        log.info("📊 bn 下单数量: {} {}", finalQuantity, symbol);
         return finalQuantity;
     }
 
@@ -331,10 +331,5 @@ public class BnApiService implements ExchangeService {
             telegramNotifier.send(String.format("✅ bn 下单失败: %s %s", symbol, e.getMessage()));
             throw new RuntimeException("🚫 bn 下单失败 " + symbol);
         }
-    }
-
-    @Override
-    public void closeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price) {
-        placeOrder(symbol, buySellEnum, positionSideEnum, tradeTypeEnum, quantity, price);
     }
 }

@@ -258,7 +258,7 @@ public class BgApiService implements ExchangeService {
             throw new RuntimeException("🚫 bg 无法下单，数量无效: " + symbol);
         }
 
-        System.out.println("📊 bg 下单数量: " + finalQuantity + " " + symbol);
+        log.info("📊 bg 下单数量: {} {}", finalQuantity, symbol);
         return finalQuantity;
     }
 
@@ -267,10 +267,10 @@ public class BgApiService implements ExchangeService {
     public void placeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price) {
         String url = baseUrl + placeOrderUrl;
 
-        // 开多规则为：side=buy,tradeSide=open；
-        // 开空规则为：side=sell,tradeSide=open；
-        // 平多规则为：side=buy,tradeSide=close；
-        // 平空规则为：side=sell,tradeSide=close
+        // 开多规则为：side=buy(long),tradeSide=open；
+        // 开空规则为：side=sell(short),tradeSide=open；
+        // 平多规则为：side=buy(long),tradeSide=close；
+        // 平空规则为：side=sell(short),tradeSide=close
         JSONObject json = new JSONObject();
         json.put("symbol", symbol);
         json.put("productType", "USDT-FUTURES");
@@ -310,10 +310,5 @@ public class BgApiService implements ExchangeService {
         } catch (Exception e) {
             telegramNotifier.send(String.format("🚫 bg 下单失败: %s %s %s %s", symbol, buySellEnum.getBgCode(), positionSideEnum.getBgCode(), e.getMessage()));
         }
-    }
-
-    @Override
-    public void closeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price) {
-        placeOrder(symbol, buySellEnum, positionSideEnum, tradeTypeEnum, quantity, price);
     }
 }

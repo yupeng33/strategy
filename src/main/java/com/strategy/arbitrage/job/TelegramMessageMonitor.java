@@ -1,10 +1,11 @@
 package com.strategy.arbitrage.job;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.strategy.arbitrage.common.enums.OperateEnum;
+import com.strategy.arbitrage.common.enums.TelegramOperateEnum;
 import com.strategy.arbitrage.model.telegram.Update;
 import com.strategy.arbitrage.model.telegram.UpdateResponse;
 import com.strategy.arbitrage.service.TradeService;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -19,6 +20,7 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
+@Slf4j
 @Component
 public class TelegramMessageMonitor {
 
@@ -72,20 +74,20 @@ public class TelegramMessageMonitor {
             String text = update.getMessage().getText();
             Long chatId = update.getMessage().getFrom().getId();
 
-            System.out.println("收到消息: " + text + " from " + chatId);
+            log.info("收到消息: {} from {} ", text, chatId);
             String[] commands = text.split(" ");
 
             try {
                 // 这里可以调用你原来的命令处理逻辑
                 if (text.startsWith("/open")) {
                     // /open okx bn COAIUSDT 2000 5
-                    tradeService.trade(OperateEnum.OPEN, commands[1], commands[2], commands[3], commands[4], commands[5]);
+                    tradeService.trade(TelegramOperateEnum.OPEN, commands[1], commands[2], commands[3], commands[4], commands[5]);
                 } else if (text.startsWith("/close")) {
                     // /close okx bn COAIUSDT 2000 5
-                    tradeService.trade(OperateEnum.CLOSE, commands[1], commands[2], commands[3], commands[4], null);
+                    tradeService.trade(TelegramOperateEnum.CLOSE, commands[1], commands[2], commands[3], commands[4], null);
                 } else if (text.startsWith("/testTrade")) {
                     // /testTrade open long bg COAIUSDT 10 5
-                    tradeService.order(OperateEnum.getByAbbr(commands[1]), commands[2], commands[3], commands[4], commands[5], commands[6]);
+                    tradeService.order(TelegramOperateEnum.getByAbbr(commands[1]), commands[2], commands[3], commands[4], commands[5], commands[6]);
                 } else {
                     sendMessage(chatId, "支持命令：/open /close 参数 {exchange1} {exchange2} {symbol} {margin} {lever}");
                     sendMessage(chatId, "ex：支持命令：/open okx bn COAIUSDT 2000 5");
