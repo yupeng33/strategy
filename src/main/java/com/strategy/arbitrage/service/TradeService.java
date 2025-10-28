@@ -44,6 +44,10 @@ public class TradeService {
             throw new RuntimeException("资金费率为空");
         }
         boolean openLongA = fundingRateA.getRate() < fundingRateB.getRate();
+
+        exchangeServiceFactory.getService(exchangeA).setLever(symbol, Integer.parseInt(lever));
+        exchangeServiceFactory.getService(exchangeB).setLever(symbol, Integer.parseInt(lever));
+
         order(TelegramOperateEnum.OPEN, openLongA ? "long" : "short", exchangeA, symbol, margin, lever);
         order(TelegramOperateEnum.OPEN, openLongA ? "short" : "long", exchangeB, symbol, margin, lever);
     }
@@ -81,8 +85,6 @@ public class TradeService {
             }
 
             log.info("{} open {} price = {}, finalPrice = {}, quantity = {}", exchange, symbol, price, finalPrice, quantity);
-            exchangeService.setLever(symbol, Integer.parseInt(lever));
-
         } else {
             List<JSONObject> jsonObjects = exchangeService.position();
             List<Position> positionList = jsonObjects.stream().map(Position::convert).toList();
