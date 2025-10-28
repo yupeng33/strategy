@@ -69,16 +69,18 @@ public class TradeService {
                 finalPrice = price * (1 - orderPriceDiffPer);
                 positionSideEnum = PositionSideEnum.LONG;
                 finalPrice = CommonUtil.normalizePrice(finalPrice, priceInfo.getScale(), RoundingMode.FLOOR);
+                // 开仓计算合约张数
+                quantity = exchangeService.calQuantity(symbol, Double.parseDouble(margin), Integer.parseInt(lever), finalPrice, (1 - orderPriceDiffPer));
             } else {
                 buySellEnum = ExchangeEnum.BITGET.getAbbr().equals(exchange) ? BuySellEnum.BUY : BuySellEnum.SELL;     // 卖出开空
                 finalPrice = price * (1 + orderPriceDiffPer);
                 positionSideEnum = PositionSideEnum.SHORT;
                 finalPrice = CommonUtil.normalizePrice(finalPrice, priceInfo.getScale(), RoundingMode.CEILING);
+                // 开仓计算合约张数
+                quantity = exchangeService.calQuantity(symbol, Double.parseDouble(margin), Integer.parseInt(lever), finalPrice, (1 - orderPriceDiffPer));
             }
 
-            log.info("open price = {}, finalPrice = {}", price, finalPrice);
-            // 开仓计算合约张数
-            quantity = exchangeService.calQuantity(symbol, Double.parseDouble(margin), Integer.parseInt(lever), finalPrice);
+            log.info("{} open {} price = {}, finalPrice = {}, quantity = {}", exchange, symbol, price, finalPrice, quantity);
             exchangeService.setLever(symbol, Integer.parseInt(lever));
 
         } else {

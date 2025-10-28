@@ -42,6 +42,14 @@ public class CommonUtil {
         return new BigDecimal(Double.toString(price)).setScale(scale, roundingMode).doubleValue();
     }
 
+    public static double normalizeQuantity(double quantity, double stepSize) {
+        BigDecimal bd = new BigDecimal(Double.toString(stepSize)).stripTrailingZeros();
+        int scale = Math.max(0, bd.scale());
+        BigDecimal qtyBd = new BigDecimal(Double.toString(quantity));
+        qtyBd = qtyBd.setScale(scale, RoundingMode.FLOOR); // 向下取整
+        return qtyBd.doubleValue();
+    }
+
     public static int getMaxDecimalPlaces(String... numberStrings) {
         if (numberStrings == null || numberStrings.length == 0) {
             return 0;

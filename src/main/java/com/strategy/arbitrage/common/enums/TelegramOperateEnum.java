@@ -13,7 +13,7 @@ public enum TelegramOperateEnum {
 
     public static TelegramOperateEnum getByAbbr(String abbr) {
         for (TelegramOperateEnum value : values()) {
-            if (value.getAbbr().equalsIgnoreCase(abbr)) {
+            if (value.getAbbr().contains(abbr)) {
                 return value;
             }
         }

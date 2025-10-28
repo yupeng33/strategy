@@ -272,8 +272,8 @@ public class OkxApiService implements ExchangeService {
 
 
     @Override
-    public Double calQuantity(String symbol, Double margin, Integer lever, double price) {
-        double quantity = (margin * lever) / price;
+    public Double calQuantity(String symbol, Double margin, Integer lever, double price, double priceDiff) {
+        double quantity = (margin * lever) / price * priceDiff;
         TickerLimit tickerLimit = StaticConstant.okxSymbolFilters.get(symbol);
         if (tickerLimit == null) {
             throw new RuntimeException("okx tickerLimit is null");
@@ -281,7 +281,7 @@ public class OkxApiService implements ExchangeService {
 
         // ✅ 校验并调整数量
         // 计算 size 的小数位数
-        double finalQuantity = CommonUtil.normalizePrice(quantity, price(symbol).get(0).getScale(), RoundingMode.FLOOR);
+        double finalQuantity = CommonUtil.normalizeQuantity(quantity, tickerLimit.getStepSize());
         if (finalQuantity <= 0) {
             throw new RuntimeException("🚫 okx 无法下单，数量无效: " + symbol);
         }
@@ -325,12 +325,13 @@ public class OkxApiService implements ExchangeService {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
             if ("0".equals(resJson.getString("code"))) {
-                telegramNotifier.send(String.format("✅ okx 下单成功: %s %s %s", symbol, buySellEnum.getOkxCode(), positionSideEnum.getOkxCode()));
+                telegramNotifier.send(String.format("✅ okx 下单成功: %s %s %s %s %s",
+                        symbol, buySellEnum.getBnCode(), positionSideEnum.getBnCode(), price, quantity));
             } else {
-                throw new RuntimeException(resJson.getString("msg"));
+                throw new RuntimeException("🚫 okx 下单失败 " + symbol + " " + resJson.getString("msg"));
             }
         } catch (Exception e) {
-            telegramNotifier.send(String.format("🚫 okx 下单失败: %s %s %s %s", symbol, buySellEnum.getOkxCode(), positionSideEnum.getOkxCode(), e.getMessage()));
-        }
+            telegramNotifier.send(String.format("✅ okx 下单失败: %s %s", symbol, e.getMessage()));
+            throw new RuntimeException("🚫 okx 下单失败 " + symbol);        }
     }
 }

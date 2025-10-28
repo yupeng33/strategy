@@ -46,7 +46,7 @@ public class RiskMonitor {
         this.okxApiService = okxApiService;
     }
 
-//    @Scheduled(fixedRate = 5 * 60 * 1000,  initialDelay = 10 * 1000)
+    @Scheduled(fixedRate = 5 * 60 * 1000,  initialDelay = 10 * 1000)
     public void checkRisk() {
         log.info("🔍 开始计算持仓风险");
         if (StaticConstant.binanceFunding.isEmpty() || StaticConstant.bitgetPrice.isEmpty() || StaticConstant.okxFunding.isEmpty()) {

@@ -267,15 +267,15 @@ public class BnApiService implements ExchangeService {
 
 
     @Override
-    public Double calQuantity(String symbol, Double margin, Integer lever, double price) {
-        double quantity = (margin * lever) / price;
+    public Double calQuantity(String symbol, Double margin, Integer lever, double price, double priceDiff) {
+        double quantity = (margin * lever) / price * priceDiff;
         TickerLimit tickerLimit = StaticConstant.bnSymbolFilters.get(symbol);
         if (tickerLimit == null) {
             throw new RuntimeException("bn tickerLimit is null");
         }
 
         // ✅ 校验并调整数量
-        double finalQuantity = CommonUtil.normalizePrice(quantity, price(symbol).get(0).getScale(), RoundingMode.FLOOR);
+        double finalQuantity = CommonUtil.normalizeQuantity(quantity, tickerLimit.getStepSize());
         if (finalQuantity <= 0) {
             throw new RuntimeException("🚫 bn 无法下单，数量无效: " + symbol);
         }
@@ -322,8 +322,8 @@ public class BnApiService implements ExchangeService {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
             if (resJson.has("orderId")) {
-                telegramNotifier.send(String.format("✅ bn 下单成功: %s %s %s %s",
-                        symbol, buySellEnum.getBnCode(), positionSideEnum.getBnCode(), quantity));
+                telegramNotifier.send(String.format("✅ bn 下单成功: %s %s %s %s %s",
+                        symbol, buySellEnum.getBnCode(), positionSideEnum.getBnCode(), price, quantity));
             } else {
                 throw new RuntimeException("🚫 bn 下单失败 " + symbol + " " + resJson.getString("msg"));
             }
