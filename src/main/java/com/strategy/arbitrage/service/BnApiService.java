@@ -189,6 +189,11 @@ public class BnApiService implements ExchangeService {
         }
     }
 
+    @Override
+    public double getCtVal(String symbol) {
+        return 1;
+    }
+
     private static final String positionUrl = "/fapi/v2/positionRisk";
     public List<JSONObject> position() {
         String url = baseUrl + positionUrl;

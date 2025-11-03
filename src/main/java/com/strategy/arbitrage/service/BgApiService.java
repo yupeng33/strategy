@@ -160,6 +160,11 @@ public class BgApiService implements ExchangeService {
             return new ArrayList<>();
         }      }
 
+    @Override
+    public double getCtVal(String symbol) {
+        return 1;
+    }
+
     public static final String positionUrl = "/api/v2/mix/position/all-position";
     public List<JSONObject> position() {
         String url = baseUrl + positionUrl;

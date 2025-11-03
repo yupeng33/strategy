@@ -19,15 +19,11 @@ import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import javax.annotation.Resource;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -185,6 +181,46 @@ public class OkxApiService implements ExchangeService {
         }
     }
 
+    public static final String basicInfoUrl = "/api/v5/account/instruments";
+    @Override
+    public double getCtVal(String symbol) {
+        String url = baseUrl + basicInfoUrl;
+        String timestamp = CommonUtil.getISOTimestamp();
+        String query = "instType=SWAP&instId=" + CommonUtil.convertOkxSymbol(symbol);
+        String preSign = timestamp + "GET" + basicInfoUrl + "?" + query;
+        String signature = ApiSignature.hmacSha256(preSign, secretKey);
+
+        HttpUrl httpUrl = HttpUrl.parse(url + "?" + query).newBuilder().build();
+
+        Headers headers = Headers.of(
+                "OK-ACCESS-KEY", apiKey,
+                "OK-ACCESS-SIGN", signature,
+                "OK-ACCESS-TIMESTAMP", timestamp,
+                "OK-ACCESS-PASSPHRASE", passPhrase,
+                "Content-Type", "application/json"
+        );
+
+        Request request = new Request.Builder()
+                .url(httpUrl)
+                .headers(headers)
+                .build();
+
+        double ctValue = 1;
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONObject resJson = new JSONObject(res);
+            if ("0".equals(resJson.getString("code"))) {
+                JSONObject basicInfo = resJson.getJSONArray("data").getJSONObject(0);
+                ctValue = Double.parseDouble(basicInfo.getString("ctVal"));
+                log.info("✅ okx 一张 {} 合约面值为 {}", symbol, ctValue);
+            }
+        } catch (Exception e) {
+            log.error("okx tickerLimit error", e);
+        }
+        return ctValue;
+    }
+
+
     public static final String positionUrl = "/api/v5/account/positions";
     public List<JSONObject> position() {
         String url = baseUrl + positionUrl;
@@ -273,7 +309,7 @@ public class OkxApiService implements ExchangeService {
 
     @Override
     public Double calQuantity(String symbol, Double margin, Integer lever, double price, double priceDiff) {
-        double quantity = (margin * lever) / price * priceDiff;
+        double quantity = (margin * lever) / price / getCtVal(symbol) * priceDiff;
         TickerLimit tickerLimit = StaticConstant.okxSymbolFilters.get(symbol);
         if (tickerLimit == null) {
             throw new RuntimeException("okx tickerLimit is null");
@@ -329,7 +365,7 @@ public class OkxApiService implements ExchangeService {
                 telegramNotifier.send(String.format("✅ okx 下单成功: %s %s %s %s %s",
                         symbol, buySellEnum.getBnCode(), positionSideEnum.getBnCode(), price, quantity));
             } else {
-                throw new RuntimeException("🚫 okx 下单失败 " + symbol + " " + resJson.getString("msg"));
+                throw new RuntimeException("🚫 okx 下单失败 " + symbol + " " + resJson.getJSONArray("data").getJSONObject(0).getString("sMsg"));
             }
         } catch (Exception e) {
             telegramNotifier.send(String.format("✅ okx 下单失败: %s %s", symbol, e.getMessage()));
