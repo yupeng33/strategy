@@ -104,18 +104,19 @@ public class TriExchangeFundingMonitor {
     // ================== 打印 Top 20 ==================
     private static void printTop20(List<RateDiff> list) {
         System.out.println("\n" + "=".repeat(140));
-        System.out.printf("%-10s %-8s %-8s %-8s %-10s %-10s %-10s %-8s %-8s %-10s %-10s%n",
-                "代币", "交易所A", "交易所B", "A价格", "B价格", "A费率(%)", "B费率(%)", "A间隔", "B间隔",  "利差(%)", "A-B方向");
+        System.out.printf("%-10s %-8s %-8s %-8s %-10s %-10s %-10s %-10s %-8s %-8s %-10s %-10s%n",
+                "代币", "交易所A", "交易所B", "A价格", "B价格", "价差(%)", "A费率(%)", "B费率(%)", "A间隔", "B间隔",  "利差(%)", "A-B方向");
         System.out.println("-".repeat(140));
 
         for (RateDiff d : list) {
             String direction = d.okxFundingA > d.fundingRateB ? "高→低" : "低→高";
-            System.out.printf("%-10s %-10s %-10s %-10.6f %-10.6f %-12.6f %-12.6f %-10d %-10d %-12.6f %-10s%n",
+            System.out.printf("%-10s %-10s %-10s %-10.6f %-12.6f %-8.2f %-12.6f %-12.6f %-10d %-10d %-12.6f %-10s%n",
                     d.symbol,
                     d.exchangeA,
                     d.exchangeB,
                     d.priceA,
                     d.priceB,
+                    Math.abs(d.priceA - d.priceB) / d.priceA * 100,
                     d.okxFundingA * 100,
                     d.fundingRateB * 100,
                     d.intervalA,
