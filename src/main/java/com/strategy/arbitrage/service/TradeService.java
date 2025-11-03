@@ -14,6 +14,10 @@ import javax.annotation.Resource;
 import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
@@ -21,6 +25,15 @@ public class TradeService {
 
     @Value("${order-price-diff-per:0.001}")
     private double orderPriceDiffPer;
+
+    ExecutorService executor = new ThreadPoolExecutor(
+            4,       // 核心线程数
+            4,       // 最大线程数
+            0L,      // 空闲线程存活时间
+            TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<>(10), // 任务队列
+            new ThreadPoolExecutor.AbortPolicy() // 拒绝策略
+    );
 
     @Resource
     private ExchangeServiceFactory exchangeServiceFactory;
@@ -48,13 +61,13 @@ public class TradeService {
         exchangeServiceFactory.getService(exchangeA).setLever(symbol, Integer.parseInt(lever));
         exchangeServiceFactory.getService(exchangeB).setLever(symbol, Integer.parseInt(lever));
 
-        order(TelegramOperateEnum.OPEN, openLongA ? "long" : "short", exchangeA, symbol, margin, lever);
-        order(TelegramOperateEnum.OPEN, openLongA ? "short" : "long", exchangeB, symbol, margin, lever);
+        executor.execute(() -> order(TelegramOperateEnum.OPEN, openLongA ? "long" : "short", exchangeA, symbol, margin, lever));
+        executor.execute(() -> order(TelegramOperateEnum.OPEN, openLongA ? "short" : "long", exchangeB, symbol, margin, lever));
     }
 
     private void doClose(String exchangeA, String exchangeB, String symbol) {
-        order(TelegramOperateEnum.CLOSE, null, exchangeA, symbol, null, null);
-        order(TelegramOperateEnum.CLOSE, null, exchangeB, symbol, null, null);
+        executor.execute(() -> order(TelegramOperateEnum.CLOSE, null, exchangeA, symbol, null, null));
+        executor.execute(() -> order(TelegramOperateEnum.CLOSE, null, exchangeB, symbol, null, null));
     }
 
     public void order(TelegramOperateEnum telegramOperateEnum, String longShort, String exchange, String symbol, String margin, String lever) {
