@@ -307,6 +307,7 @@ public class OkxApiService implements ExchangeService {
         json.put("posSide", positionSideEnum.getOkxCode());     // long/short
         json.put("ordType", tradeTypeEnum.getOkxCode());        // limit/market
         json.put("sz", String.valueOf(quantity));
+        json.put("px", String.valueOf(price));
 
         String timestamp = CommonUtil.getISOTimestamp();
         String body = json.toString();
