@@ -56,7 +56,17 @@ public class TradeService {
         if (fundingRateA == null || fundingRateB == null) {
             throw new RuntimeException("资金费率为空");
         }
-        boolean openLongA = fundingRateA.getRate() < fundingRateB.getRate();
+
+        // 优化做单方向，币种周期相同时，费率低得做多；币种周期短时，利率为负数做多，利率为正做空
+        boolean openLongA;
+        if (fundingRateA.getInterval() == fundingRateB.getInterval()) {
+            openLongA = fundingRateA.getRate() < fundingRateB.getRate();
+        } else if (fundingRateA.getInterval() < fundingRateB.getInterval()) {
+            openLongA = fundingRateA.getRate() < 0;
+        } else {
+            openLongA = fundingRateB.getRate() > 0;
+        }
+
 
         exchangeServiceFactory.getService(exchangeA).setLever(symbol, Integer.parseInt(lever));
         exchangeServiceFactory.getService(exchangeB).setLever(symbol, Integer.parseInt(lever));
