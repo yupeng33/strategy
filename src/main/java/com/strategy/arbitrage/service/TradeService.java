@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -57,6 +58,7 @@ public class TradeService {
             throw new RuntimeException("资金费率为空");
         }
 
+        // 吃周期短的费率
         // 优化做单方向，币种周期相同时，费率低得做多；币种周期短时，利率为负数做多，利率为正做空
         boolean openLongA;
         if (fundingRateA.getInterval() == fundingRateB.getInterval()) {
@@ -67,12 +69,18 @@ public class TradeService {
             openLongA = fundingRateB.getRate() > 0;
         }
 
+        // 周期长的币种，费率一般会更高，临界时间开单的话，临时吃一次周期长的费率
+        int currentHour = LocalDateTime.now().getHour();
+        if (currentHour == 3 || currentHour == 7 || currentHour == 11 || currentHour == 15 || currentHour == 19 || currentHour == 23) {
+            openLongA = !openLongA;
+        }
 
         exchangeServiceFactory.getService(exchangeA).setLever(symbol, Integer.parseInt(lever));
         exchangeServiceFactory.getService(exchangeB).setLever(symbol, Integer.parseInt(lever));
 
-        executor.execute(() -> order(TelegramOperateEnum.OPEN, openLongA ? "long" : "short", exchangeA, symbol, margin, lever));
-        executor.execute(() -> order(TelegramOperateEnum.OPEN, openLongA ? "short" : "long", exchangeB, symbol, margin, lever));
+        boolean finalOpenLongA = openLongA;
+        executor.execute(() -> order(TelegramOperateEnum.OPEN, finalOpenLongA ? "long" : "short", exchangeA, symbol, margin, lever));
+        executor.execute(() -> order(TelegramOperateEnum.OPEN, finalOpenLongA ? "short" : "long", exchangeB, symbol, margin, lever));
     }
 
     private void doClose(String exchangeA, String exchangeB, String symbol) {
