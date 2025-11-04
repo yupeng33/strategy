@@ -3,6 +3,7 @@ package com.strategy.arbitrage.service;
 import com.strategy.arbitrage.common.enums.BuySellEnum;
 import com.strategy.arbitrage.common.enums.PositionSideEnum;
 import com.strategy.arbitrage.common.enums.TradeTypeEnum;
+import com.strategy.arbitrage.model.Bill;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.model.Price;
 import com.strategy.arbitrage.model.TickerLimit;
@@ -19,4 +20,5 @@ public interface ExchangeService {
     void setLever(String symbol, Integer lever);
     Double calQuantity(String symbol, Double margin, Integer lever, double price, double priceDiff);
     void placeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price);
+    List<Bill> bill();
 }

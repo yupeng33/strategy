@@ -3,10 +3,8 @@ package com.strategy.arbitrage.service;
 import com.strategy.arbitrage.ApiSignature;
 import com.strategy.arbitrage.HttpUtil;
 import com.strategy.arbitrage.common.constant.StaticConstant;
-import com.strategy.arbitrage.common.enums.BuySellEnum;
-import com.strategy.arbitrage.common.enums.ExchangeEnum;
-import com.strategy.arbitrage.common.enums.PositionSideEnum;
-import com.strategy.arbitrage.common.enums.TradeTypeEnum;
+import com.strategy.arbitrage.common.enums.*;
+import com.strategy.arbitrage.model.Bill;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.model.Price;
 import com.strategy.arbitrage.model.TickerLimit;
@@ -23,7 +21,9 @@ import org.springframework.util.StringUtils;
 import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -45,6 +45,7 @@ public class OkxApiService implements ExchangeService {
     private TelegramNotifier telegramNotifier;
 
     private static final String fundingInfoUrl = "/api/v5/public/funding-rate";
+
     public List<FundingRate> fundRate(String symbol) {
         String url = baseUrl + fundingInfoUrl;
         HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
@@ -76,7 +77,7 @@ public class OkxApiService implements ExchangeService {
                 long fundingTime = Long.parseLong(fundRate.getString("fundingTime"));
                 long nextFundingTime = Long.parseLong(fundRate.getString("nextFundingTime"));
                 fundingRate.setNextFundingTime(nextFundingTime);
-                fundingRate.setInterval((nextFundingTime - fundingTime)/60/60/1000);
+                fundingRate.setInterval((nextFundingTime - fundingTime) / 60 / 60 / 1000);
                 result.add(fundingRate);
             }
             return result;
@@ -88,6 +89,7 @@ public class OkxApiService implements ExchangeService {
 
     private static final String singlePriceUrl = "/api/v5/market/ticker";
     private static final String priceUrl = "/api/v5/market/tickers";
+
     @Override
     public List<Price> price(String symbol) {
         String url = baseUrl + (StringUtils.hasLength(symbol) ? singlePriceUrl : priceUrl);
@@ -135,6 +137,7 @@ public class OkxApiService implements ExchangeService {
     }
 
     public static final String tickerLimitUrl = "/api/v5/account/instruments";
+
     @Override
     public List<TickerLimit> tickerLimit() {
         String url = baseUrl + tickerLimitUrl;
@@ -182,6 +185,7 @@ public class OkxApiService implements ExchangeService {
     }
 
     public static final String basicInfoUrl = "/api/v5/account/instruments";
+
     @Override
     public double getCtVal(String symbol) {
         String url = baseUrl + basicInfoUrl;
@@ -222,6 +226,7 @@ public class OkxApiService implements ExchangeService {
 
 
     public static final String positionUrl = "/api/v5/account/positions";
+
     public List<JSONObject> position() {
         String url = baseUrl + positionUrl;
         String timestamp = CommonUtil.getISOTimestamp();
@@ -272,6 +277,7 @@ public class OkxApiService implements ExchangeService {
     }
 
     private static final String setLeverUrl = "/api/v5/account/set-leverage";
+
     public void setLever(String symbol, Integer lever) {
         String url = baseUrl + setLeverUrl;
         JSONObject json = new JSONObject();
@@ -328,6 +334,7 @@ public class OkxApiService implements ExchangeService {
 
 
     private static final String placeOrderUrl = "/api/v5/trade/order";
+
     public void placeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price) {
         String url = baseUrl + placeOrderUrl;
 
@@ -369,6 +376,59 @@ public class OkxApiService implements ExchangeService {
             }
         } catch (Exception e) {
             telegramNotifier.send(String.format("✅ okx 下单失败: %s %s", symbol, e.getMessage()));
-            throw new RuntimeException("🚫 okx 下单失败 " + symbol);        }
+            throw new RuntimeException("🚫 okx 下单失败 " + symbol);
+        }
+    }
+
+    private static final String billUrl = "/api/v5/account/bills";
+    public List<Bill> bill() {
+        String url = baseUrl + billUrl;
+        String timestamp = CommonUtil.getISOTimestamp();
+        String query = "instType=SWAP&begin=" + System.currentTimeMillis();
+        String preSign = timestamp + "GET" + billUrl + "?" + query;
+        String signature = ApiSignature.hmacSha256(preSign, secretKey);
+
+        HttpUrl httpUrl = HttpUrl.parse(url + "?" + query).newBuilder().build();
+
+        Headers headers = Headers.of(
+                "OK-ACCESS-KEY", apiKey,
+                "OK-ACCESS-SIGN", signature,
+                "OK-ACCESS-TIMESTAMP", timestamp,
+                "OK-ACCESS-PASSPHRASE", passPhrase,
+                "Content-Type", "application/json"
+        );
+
+        Request request = new Request.Builder()
+                .url(httpUrl)
+                .headers(headers)
+                .build();
+
+        Map<String, Bill> symbol2Bill = new HashMap<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONObject resJson = new JSONObject(res);
+            if ("0".equals(resJson.getString("code"))) {
+                JSONArray arr = resJson.getJSONArray("data");
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject billJson = arr.getJSONObject(i);
+                    String symbol = CommonUtil.convertOkxSymbol(billJson.getString("instId"));
+                    Bill bill = symbol2Bill.getOrDefault(symbol, new Bill());
+                    bill.setExchange(ExchangeEnum.OKX.getAbbr());
+                    bill.setSymbol(symbol);
+                    String businessType = billJson.getString("type");
+                    if (businessType.equalsIgnoreCase("8")) {
+                        bill.setFundRateFee(bill.getFundRateFee() + Double.parseDouble(billJson.getString("pnl")));
+                    } else {
+                        bill.setTradePnl(bill.getTradePnl() + Double.parseDouble(billJson.getString("pnl")));
+                        bill.setTradeFee(bill.getTradeFee() + Double.parseDouble(billJson.getString("fee")));
+                    }
+                    symbol2Bill.put(symbol, bill);
+                }
+            }
+            return new ArrayList<>(symbol2Bill.values());
+        } catch (Exception e) {
+            log.error("okx position error", e);
+            return new ArrayList<>();
+        }
     }
 }

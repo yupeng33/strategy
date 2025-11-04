@@ -3,10 +3,8 @@ package com.strategy.arbitrage.service;
 import com.strategy.arbitrage.ApiSignature;
 import com.strategy.arbitrage.HttpUtil;
 import com.strategy.arbitrage.common.constant.StaticConstant;
-import com.strategy.arbitrage.common.enums.BuySellEnum;
-import com.strategy.arbitrage.common.enums.ExchangeEnum;
-import com.strategy.arbitrage.common.enums.PositionSideEnum;
-import com.strategy.arbitrage.common.enums.TradeTypeEnum;
+import com.strategy.arbitrage.common.enums.*;
+import com.strategy.arbitrage.model.Bill;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.model.Price;
 import com.strategy.arbitrage.model.TickerLimit;
@@ -24,6 +22,9 @@ import org.springframework.web.util.UriComponentsBuilder;
 import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -158,7 +159,8 @@ public class BgApiService implements ExchangeService {
         } catch (Exception e) {
             log.error("bitgetFundRate error", e);
             return new ArrayList<>();
-        }      }
+        }
+    }
 
     @Override
     public double getCtVal(String symbol) {
@@ -318,4 +320,52 @@ public class BgApiService implements ExchangeService {
             throw new RuntimeException("🚫 bg 下单失败 " + symbol);
         }
     }
+
+    public static final String billUrl = "/api/v2/mix/account/bill";
+    public List<Bill> bill() {
+        String url = baseUrl + billUrl;
+        String query = "productType=USDT-FUTURES&limit=100&startTime=" + LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        long timestamp = System.currentTimeMillis();
+        String preSign = timestamp + "GET" + billUrl + "?" + query;
+        String signature = ApiSignature.hmacSha256(preSign, secretKey);
+
+        HttpUrl httpUrl = HttpUrl.parse(url + "?" + query).newBuilder().build();
+
+        Headers headers = Headers.of(
+                "ACCESS-KEY", apiKey,
+                "ACCESS-SIGN", signature,
+                "ACCESS-TIMESTAMP", String.valueOf(timestamp),
+                "ACCESS-PASSPHRASE", passPhrase,
+                "Content-Type", "application/json"
+        );
+
+        Request request = new Request.Builder()
+                .url(httpUrl)
+                .headers(headers)
+                .build();
+
+        List<Bill> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONObject resJson = new JSONObject(res);
+            if ("00000".equals(resJson.getString("code"))) {
+                JSONArray arr = resJson.getJSONObject("data").getJSONArray("bills");
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject billJson = arr.getJSONObject(i);
+                    Bill bill = new Bill();
+                    bill.setExchange(ExchangeEnum.BITGET.getAbbr());
+                    bill.setSymbol(billJson.getString("symbol"));
+                    String businessType = billJson.getString("businessType");
+                    BillTypeEnum billType = businessType.equalsIgnoreCase("contract_settle_fee") ? BillTypeEnum.FUND_RATE :
+                            BillTypeEnum.TRADE;
+                    result.add(bill);
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("bitget bill error", e);
+            return new ArrayList<>();
+        }
+    }
+
 }

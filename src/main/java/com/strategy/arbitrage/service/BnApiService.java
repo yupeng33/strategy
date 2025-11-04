@@ -7,6 +7,7 @@ import com.strategy.arbitrage.common.enums.BuySellEnum;
 import com.strategy.arbitrage.common.enums.ExchangeEnum;
 import com.strategy.arbitrage.common.enums.PositionSideEnum;
 import com.strategy.arbitrage.common.enums.TradeTypeEnum;
+import com.strategy.arbitrage.model.Bill;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.model.Price;
 import com.strategy.arbitrage.model.TickerLimit;
@@ -47,6 +48,7 @@ public class BnApiService implements ExchangeService {
     private TelegramNotifier telegramNotifier;
 
     private static final String fundRateUrl = "/fapi/v1/premiumIndex";
+
     public List<FundingRate> fundRate(String symbol) {
         String url = baseUrl + fundRateUrl;
         HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
@@ -83,6 +85,7 @@ public class BnApiService implements ExchangeService {
     }
 
     private static final String fundingInfoUrl = "/fapi/v1/fundingInfo";
+
     public List<JSONObject> fundingInfo(String symbol) {
         String url = baseUrl + fundingInfoUrl;
         HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
@@ -107,6 +110,7 @@ public class BnApiService implements ExchangeService {
     }
 
     private static final String priceUrl = "/fapi/v1/ticker/24hr";
+
     @Override
     public List<Price> price(String symbol) {
         String url = baseUrl + priceUrl;
@@ -146,6 +150,7 @@ public class BnApiService implements ExchangeService {
     }
 
     private static final String tickerLimit = "/fapi/v1/exchangeInfo";
+
     @Override
     public List<TickerLimit> tickerLimit() {
         String url = baseUrl + tickerLimit;
@@ -195,6 +200,7 @@ public class BnApiService implements ExchangeService {
     }
 
     private static final String positionUrl = "/fapi/v2/positionRisk";
+
     public List<JSONObject> position() {
         String url = baseUrl + positionUrl;
         long timestamp = System.currentTimeMillis();
@@ -231,6 +237,7 @@ public class BnApiService implements ExchangeService {
     }
 
     private static final String setLeverUrl = "/fapi/v1/leverage";
+
     public void setLever(String symbol, Integer lever) {
         Map<String, String> params = new HashMap<>();
         params.put("symbol", symbol);
@@ -256,7 +263,7 @@ public class BnApiService implements ExchangeService {
                 "X-MBX-APIKEY", apiKey,
                 "Content-Type", "application/json");
 
-        try (Response response = HttpUtil.send("POST", url, null , headers)) {
+        try (Response response = HttpUtil.send("POST", url, null, headers)) {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
             if (resJson.has("leverage")) {
@@ -290,6 +297,7 @@ public class BnApiService implements ExchangeService {
     }
 
     private static final String placeOrderUrl = "/fapi/v1/order";
+
     public void placeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price) {
         Map<String, String> orderParams = new HashMap<>();
         orderParams.put("symbol", symbol);
@@ -323,7 +331,7 @@ public class BnApiService implements ExchangeService {
                 "X-MBX-APIKEY", apiKey,
                 "Content-Type", "application/json");
 
-        try (Response response = HttpUtil.send("POST", url, null , headers)) {
+        try (Response response = HttpUtil.send("POST", url, null, headers)) {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
             if (resJson.has("orderId")) {
@@ -335,6 +343,54 @@ public class BnApiService implements ExchangeService {
         } catch (Exception e) {
             telegramNotifier.send(String.format("✅ bn 下单失败: %s %s", symbol, e.getMessage()));
             throw new RuntimeException("🚫 bn 下单失败 " + symbol);
+        }
+    }
+
+    private static final String billUrl = "/fapi/v1/income";
+    public List<Bill> bill() {
+        String url = baseUrl + billUrl;
+        long timestamp = System.currentTimeMillis();
+        String query = "startTime=" + timestamp + "&timestamp=" + timestamp;
+        String signature = ApiSignature.hmacSha256Hex(query, secretKey);
+
+        HttpUrl httpUrl = HttpUrl.parse(url).newBuilder()
+                .addQueryParameter("startTime", String.valueOf(timestamp))
+                .addQueryParameter("timestamp", String.valueOf(timestamp))
+                .addQueryParameter("signature", signature)
+                .build();
+
+        Request request = new Request.Builder()
+                .url(httpUrl)
+                .addHeader("X-MBX-APIKEY", apiKey)
+                .build();
+
+        Map<String, Bill> symbol2Bill = new HashMap<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONArray arr = new JSONArray(res);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject billJson = arr.getJSONObject(i);
+                String symbol = CommonUtil.convertOkxSymbol(billJson.getString("symbol"));
+
+                Bill bill = symbol2Bill.getOrDefault(symbol, new Bill());
+                bill.setExchange(ExchangeEnum.BINANCE.getAbbr());
+                bill.setSymbol(symbol);
+
+                String businessType = billJson.getString("incomeType");
+                if (businessType.equalsIgnoreCase("FUNDING_FEE")) {
+                    bill.setFundRateFee(bill.getFundRateFee() + Double.parseDouble(billJson.getString("income")));
+                } else if (businessType.equalsIgnoreCase("COMMISSION")){
+                    bill.setTradeFee(bill.getTradeFee() + Double.parseDouble(billJson.getString("income")));
+                } else if (businessType.equalsIgnoreCase("REALIZED_PNL")){
+                    bill.setTradePnl(bill.getTradePnl() + Double.parseDouble(billJson.getString("income")));
+                }
+                symbol2Bill.put(symbol, bill);
+            }
+
+            return new ArrayList<>(symbol2Bill.values());
+        } catch (Exception e) {
+            log.error("binance position error", e);
+            return new ArrayList<>();
         }
     }
 }
