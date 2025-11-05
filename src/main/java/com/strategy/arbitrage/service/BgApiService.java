@@ -324,7 +324,7 @@ public class BgApiService implements ExchangeService {
     public static final String billUrl = "/api/v2/mix/account/bill";
     public List<Bill> bill() {
         String url = baseUrl + billUrl;
-        String query = "productType=USDT-FUTURES&limit=100";
+        String query = "productType=USDT-FUTURES&limit=100&startTime=" + CommonUtil.getTodayBeginTime();
         long timestamp = System.currentTimeMillis();
         String preSign = timestamp + "GET" + billUrl + "?" + query;
         String signature = ApiSignature.hmacSha256(preSign, secretKey);
