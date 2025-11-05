@@ -350,11 +350,12 @@ public class BnApiService implements ExchangeService {
     public List<Bill> bill() {
         String url = baseUrl + billUrl;
         long timestamp = System.currentTimeMillis();
-        String query = "startTime=" + timestamp + "&timestamp=" + timestamp;
+        Long todayBeginTime = CommonUtil.getTodayBeginTime();
+        String query = "startTime=" + todayBeginTime + "&timestamp=" + timestamp;
         String signature = ApiSignature.hmacSha256Hex(query, secretKey);
 
         HttpUrl httpUrl = HttpUrl.parse(url).newBuilder()
-                .addQueryParameter("startTime", String.valueOf(timestamp))
+                .addQueryParameter("startTime", String.valueOf(todayBeginTime))
                 .addQueryParameter("timestamp", String.valueOf(timestamp))
                 .addQueryParameter("signature", signature)
                 .build();
@@ -370,7 +371,10 @@ public class BnApiService implements ExchangeService {
             JSONArray arr = new JSONArray(res);
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject billJson = arr.getJSONObject(i);
-                String symbol = CommonUtil.convertOkxSymbol(billJson.getString("symbol"));
+                String symbol = billJson.getString("symbol");
+                if (!StringUtils.hasLength(symbol)) {
+                    continue;
+                }
 
                 Bill bill = symbol2Bill.getOrDefault(symbol, new Bill());
                 bill.setExchange(ExchangeEnum.BINANCE.getAbbr());

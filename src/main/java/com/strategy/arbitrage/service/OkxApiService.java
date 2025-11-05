@@ -384,7 +384,7 @@ public class OkxApiService implements ExchangeService {
     public List<Bill> bill() {
         String url = baseUrl + billUrl;
         String timestamp = CommonUtil.getISOTimestamp();
-        String query = "instType=SWAP&begin=" + System.currentTimeMillis();
+        String query = "instType=SWAP&begin=" + CommonUtil.getTodayBeginTime();
         String preSign = timestamp + "GET" + billUrl + "?" + query;
         String signature = ApiSignature.hmacSha256(preSign, secretKey);
 
@@ -412,9 +412,14 @@ public class OkxApiService implements ExchangeService {
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject billJson = arr.getJSONObject(i);
                     String symbol = CommonUtil.convertOkxSymbol(billJson.getString("instId"));
+                    if (!StringUtils.hasLength(symbol)) {
+                        continue;
+                    }
+
                     Bill bill = symbol2Bill.getOrDefault(symbol, new Bill());
                     bill.setExchange(ExchangeEnum.OKX.getAbbr());
                     bill.setSymbol(symbol);
+
                     String businessType = billJson.getString("type");
                     if (businessType.equalsIgnoreCase("8")) {
                         bill.setFundRateFee(bill.getFundRateFee() + Double.parseDouble(billJson.getString("pnl")));

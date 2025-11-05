@@ -4,6 +4,8 @@ import com.strategy.arbitrage.common.enums.ExchangeEnum;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -65,5 +67,9 @@ public class CommonUtil {
             max = Math.max(max, decimalPlaces);
         }
         return max;
+    }
+
+    public static Long getTodayBeginTime() {
+        return LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
     }
 }

@@ -324,7 +324,7 @@ public class BgApiService implements ExchangeService {
     public static final String billUrl = "/api/v2/mix/account/bill";
     public List<Bill> bill() {
         String url = baseUrl + billUrl;
-        String query = "productType=USDT-FUTURES&limit=100&startTime=" + LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        String query = "productType=USDT-FUTURES&limit=100";
         long timestamp = System.currentTimeMillis();
         String preSign = timestamp + "GET" + billUrl + "?" + query;
         String signature = ApiSignature.hmacSha256(preSign, secretKey);
@@ -344,7 +344,7 @@ public class BgApiService implements ExchangeService {
                 .headers(headers)
                 .build();
 
-        List<Bill> result = new ArrayList<>();
+        Map<String, Bill> symbol2Bill = new HashMap<>();
         try (Response response = HttpUtil.client.newCall(request).execute()) {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
@@ -352,16 +352,27 @@ public class BgApiService implements ExchangeService {
                 JSONArray arr = resJson.getJSONObject("data").getJSONArray("bills");
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject billJson = arr.getJSONObject(i);
-                    Bill bill = new Bill();
+                    String symbol = billJson.getString("symbol");
+                    if (!StringUtils.hasLength(symbol)) {
+                        continue;
+                    }
+
+                    Bill bill = symbol2Bill.getOrDefault(symbol, new Bill());
                     bill.setExchange(ExchangeEnum.BITGET.getAbbr());
-                    bill.setSymbol(billJson.getString("symbol"));
+                    bill.setSymbol(symbol);
+
                     String businessType = billJson.getString("businessType");
-                    BillTypeEnum billType = businessType.equalsIgnoreCase("contract_settle_fee") ? BillTypeEnum.FUND_RATE :
-                            BillTypeEnum.TRADE;
-                    result.add(bill);
+                    if (businessType.equalsIgnoreCase("contract_settle_fee")) {
+                        bill.setFundRateFee(bill.getFundRateFee() + Double.parseDouble(billJson.getString("amount")));
+                    } else if (businessType.equalsIgnoreCase("open_long") || businessType.equalsIgnoreCase("open_short") ||
+                            businessType.equalsIgnoreCase("close_long") || businessType.equalsIgnoreCase("close_short")){
+                        bill.setTradeFee(bill.getTradeFee() + Double.parseDouble(billJson.getString("fee")));
+                        bill.setTradePnl(bill.getTradePnl() + Double.parseDouble(billJson.getString("amount")));
+                    }
+                    symbol2Bill.put(symbol, bill);
                 }
             }
-            return result;
+            return new ArrayList<>(symbol2Bill.values());
         } catch (Exception e) {
             log.error("bitget bill error", e);
             return new ArrayList<>();

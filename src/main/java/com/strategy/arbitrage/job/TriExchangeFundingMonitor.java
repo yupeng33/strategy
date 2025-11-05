@@ -80,12 +80,13 @@ public class TriExchangeFundingMonitor {
 
             Double priceAA = priceA.get(symbolA);
             Double priceBB = priceB.get(symbolA);
+            if (priceAA == null || priceBB == null || priceAA <= 0 || priceBB <= 0) {
+                continue;
+            }
 
             list.add(new RateDiff(
                 getCommonSymbol(symbolA, exchangeA),
-                exchangeA, exchangeB,
-                priceAA != null ? priceAA : 0.0,
-                priceBB != null ? priceBB : 0.0,
+                exchangeA, exchangeB, priceAA, priceBB,
                 rateA.getInterval(), rateB.getInterval(),
                 rateA.getRate(), rateB.getRate(), diff
             ));
@@ -104,13 +105,13 @@ public class TriExchangeFundingMonitor {
     // ================== 打印 Top 20 ==================
     private static void printTop20(List<RateDiff> list) {
         System.out.println("\n" + "=".repeat(140));
-        System.out.printf("%-10s %-8s %-8s %-8s %-10s %-10s %-10s %-10s %-8s %-8s %-10s %-10s%n",
+        System.out.printf("%-16s %-8s %-8s %-8s %-10s %-10s %-10s %-10s %-8s %-8s %-10s %-10s%n",
                 "代币", "交易所A", "交易所B", "A价格", "B价格", "价差(%)", "A费率(%)", "B费率(%)", "A间隔", "B间隔",  "利差(%)", "A-B方向");
         System.out.println("-".repeat(140));
 
         for (RateDiff d : list) {
             String direction = d.okxFundingA > d.fundingRateB ? "高→低" : "低→高";
-            System.out.printf("%-10s %-10s %-10s %-10.6f %-12.6f %-8.2f %-12.6f %-12.6f %-10d %-10d %-12.6f %-10s%n",
+            System.out.printf("%-16s %-10s %-10s %-10.6f %-12.6f %-8.2f %-12.6f %-12.6f %-10d %-10d %-12.6f %-10s%n",
                     d.symbol,
                     d.exchangeA,
                     d.exchangeB,
@@ -134,7 +135,7 @@ public class TriExchangeFundingMonitor {
         List<FundingRate> filtered = rates.stream().limit(10).toList();
 
         System.out.println("\n🔥 " + exchange + " |资金费率| Top 10:");
-        System.out.println(String.format("%-8s %-12s %-8s %-8s %s", "交易所", "合约", "费率(%)", "间隔", "下次结算"));
+        System.out.printf("%-8s %-12s %-8s %-8s %s%n", "交易所", "合约", "费率(%)", "间隔", "下次结算");
         System.out.println("-".repeat(50));
         filtered.forEach(System.out::println);
     }
