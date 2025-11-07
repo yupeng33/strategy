@@ -347,11 +347,11 @@ public class BnApiService implements ExchangeService {
     }
 
     private static final String billUrl = "/fapi/v1/income";
-    public List<Bill> bill() {
+    public List<Bill> bill(Map<String, Bill> symbol2Bill, String pageParam) {
         String url = baseUrl + billUrl;
         long timestamp = System.currentTimeMillis();
         Long todayBeginTime = CommonUtil.getTodayBeginTime();
-        String query = "startTime=" + todayBeginTime + "&timestamp=" + timestamp;
+        String query = "startTime=" + todayBeginTime + "&page=" + pageParam + "&timestamp=" + timestamp;
         String signature = ApiSignature.hmacSha256Hex(query, secretKey);
 
         HttpUrl httpUrl = HttpUrl.parse(url).newBuilder()
@@ -365,10 +365,13 @@ public class BnApiService implements ExchangeService {
                 .addHeader("X-MBX-APIKEY", apiKey)
                 .build();
 
-        Map<String, Bill> symbol2Bill = new HashMap<>();
         try (Response response = HttpUtil.client.newCall(request).execute()) {
             String res = response.body().string();
             JSONArray arr = new JSONArray(res);
+            if (arr.isEmpty()) {
+                return new ArrayList<>(symbol2Bill.values());
+            }
+
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject billJson = arr.getJSONObject(i);
                 String symbol = billJson.getString("symbol");
@@ -388,9 +391,10 @@ public class BnApiService implements ExchangeService {
                 } else if (businessType.equalsIgnoreCase("REALIZED_PNL")){
                     bill.setTradePnl(bill.getTradePnl() + Double.parseDouble(billJson.getString("income")));
                 }
+
                 symbol2Bill.put(symbol, bill);
             }
-
+            this.bill(symbol2Bill, String.valueOf(Integer.parseInt(pageParam) + 1));
             return new ArrayList<>(symbol2Bill.values());
         } catch (Exception e) {
             log.error("binance position error", e);

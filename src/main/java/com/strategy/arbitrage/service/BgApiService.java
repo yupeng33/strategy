@@ -322,7 +322,7 @@ public class BgApiService implements ExchangeService {
     }
 
     public static final String billUrl = "/api/v2/mix/account/bill";
-    public List<Bill> bill() {
+    public List<Bill> bill(Map<String, Bill> symbol2Bill, String pageParam) {
         String url = baseUrl + billUrl;
         String query = "productType=USDT-FUTURES&limit=100&startTime=" + CommonUtil.getTodayBeginTime();
         long timestamp = System.currentTimeMillis();
@@ -344,7 +344,6 @@ public class BgApiService implements ExchangeService {
                 .headers(headers)
                 .build();
 
-        Map<String, Bill> symbol2Bill = new HashMap<>();
         try (Response response = HttpUtil.client.newCall(request).execute()) {
             String res = response.body().string();
             JSONObject resJson = new JSONObject(res);
