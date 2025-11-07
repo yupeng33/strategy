@@ -325,6 +325,10 @@ public class BgApiService implements ExchangeService {
     public List<Bill> bill(Map<String, Bill> symbol2Bill, String pageParam) {
         String url = baseUrl + billUrl;
         String query = "productType=USDT-FUTURES&limit=100&startTime=" + CommonUtil.getTodayBeginTime();
+        if (StringUtils.hasLength(pageParam)) {
+            query = query + "&pageParam=" + pageParam;
+        }
+
         long timestamp = System.currentTimeMillis();
         String preSign = timestamp + "GET" + billUrl + "?" + query;
         String signature = ApiSignature.hmacSha256(preSign, secretKey);
@@ -349,6 +353,10 @@ public class BgApiService implements ExchangeService {
             JSONObject resJson = new JSONObject(res);
             if ("00000".equals(resJson.getString("code"))) {
                 JSONArray arr = resJson.getJSONObject("data").getJSONArray("bills");
+                if (arr.isEmpty()) {
+                    return new ArrayList<>(symbol2Bill.values());
+                }
+
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject billJson = arr.getJSONObject(i);
                     String symbol = billJson.getString("symbol");
@@ -369,7 +377,9 @@ public class BgApiService implements ExchangeService {
                         bill.setTradePnl(bill.getTradePnl() + Double.parseDouble(billJson.getString("amount")));
                     }
                     symbol2Bill.put(symbol, bill);
+                    pageParam = billJson.getString("billId");
                 }
+                this.bill(symbol2Bill, pageParam);
             }
             return new ArrayList<>(symbol2Bill.values());
         } catch (Exception e) {

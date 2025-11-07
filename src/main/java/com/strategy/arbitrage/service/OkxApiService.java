@@ -434,7 +434,7 @@ public class OkxApiService implements ExchangeService {
                     pageParam = String.valueOf(Math.max(Long.parseLong(pageParam), Long.parseLong(billJson.getString("billId"))));
                 }
             }
-            this.bill(symbol2Bill, String.valueOf(Integer.parseInt(pageParam) + 1));
+            this.bill(symbol2Bill, pageParam);
             return new ArrayList<>(symbol2Bill.values());
         } catch (Exception e) {
             log.error("okx position error", e);
