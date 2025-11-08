@@ -70,10 +70,10 @@ public class TradeService {
         }
 
         // 周期长的币种，费率一般会更高，临界时间开单的话，临时吃一次周期长的费率
-        int currentHour = LocalDateTime.now().getHour();
-        if (currentHour == 3 || currentHour == 7 || currentHour == 11 || currentHour == 15 || currentHour == 19 || currentHour == 23) {
-            openLongA = !openLongA;
-        }
+//        int currentHour = LocalDateTime.now().getHour();
+//        if (currentHour == 3 || currentHour == 7 || currentHour == 11 || currentHour == 15 || currentHour == 19 || currentHour == 23) {
+//            openLongA = !openLongA;
+//        }
 
         exchangeServiceFactory.getService(exchangeA).setLever(symbol, Integer.parseInt(lever));
         exchangeServiceFactory.getService(exchangeB).setLever(symbol, Integer.parseInt(lever));
