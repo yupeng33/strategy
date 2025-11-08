@@ -350,12 +350,14 @@ public class BnApiService implements ExchangeService {
     public List<Bill> bill(Map<String, Bill> symbol2Bill, String pageParam) {
         String url = baseUrl + billUrl;
         long timestamp = System.currentTimeMillis();
-        Long todayBeginTime = CommonUtil.getTodayBeginTime();
+        Long todayBeginTime = CommonUtil.getWeedBeginTime();
+        pageParam = StringUtils.hasLength(pageParam) ? pageParam : "1";
         String query = "startTime=" + todayBeginTime + "&page=" + pageParam + "&timestamp=" + timestamp;
         String signature = ApiSignature.hmacSha256Hex(query, secretKey);
 
         HttpUrl httpUrl = HttpUrl.parse(url).newBuilder()
                 .addQueryParameter("startTime", String.valueOf(todayBeginTime))
+                .addQueryParameter("page", pageParam)
                 .addQueryParameter("timestamp", String.valueOf(timestamp))
                 .addQueryParameter("signature", signature)
                 .build();
@@ -394,7 +396,9 @@ public class BnApiService implements ExchangeService {
 
                 symbol2Bill.put(symbol, bill);
             }
-            this.bill(symbol2Bill, String.valueOf(Integer.parseInt(pageParam) + 1));
+            pageParam = String.valueOf(Integer.parseInt(pageParam) + 1);
+            this.bill(symbol2Bill, pageParam);
+
             return new ArrayList<>(symbol2Bill.values());
         } catch (Exception e) {
             log.error("binance position error", e);

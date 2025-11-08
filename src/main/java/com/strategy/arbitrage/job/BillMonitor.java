@@ -16,10 +16,7 @@ import org.springframework.util.CollectionUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -41,11 +38,11 @@ public class BillMonitor {
     @Scheduled(fixedRate = 5 * 60 * 1000,  initialDelay = 10 * 1000)
     public void checkRisk() {
         log.info("🔍 开始计算账单");
-        List<Bill> bnBill = bnApiService.bill();
+        List<Bill> bnBill = bnApiService.bill(new HashMap<>(), null);
         bnBill.forEach(e -> log.info(e.toString()));
-        List<Bill> bgBill = bgApiService.bill();
+        List<Bill> bgBill = bgApiService.bill(new HashMap<>(), null);
         bgBill.forEach(e -> log.info(e.toString()));
-        List<Bill> okxBill = okxApiService.bill();
+        List<Bill> okxBill = okxApiService.bill(new HashMap<>(), null);
         okxBill.forEach(e -> log.info(e.toString()));
     }
 

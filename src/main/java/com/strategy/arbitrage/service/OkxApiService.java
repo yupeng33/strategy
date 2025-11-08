@@ -381,10 +381,15 @@ public class OkxApiService implements ExchangeService {
     }
 
     private static final String billUrl = "/api/v5/account/bills";
+    private static final Integer limit = 100;
     public List<Bill> bill(Map<String, Bill> symbol2Bill, String pageParam) {
         String url = baseUrl + billUrl;
         String timestamp = CommonUtil.getISOTimestamp();
-        String query = "instType=SWAP&before=" + pageParam + "&begin=" + CommonUtil.getTodayBeginTime();
+        String query = "limit=" + limit + "&instType=SWAP&begin=" + CommonUtil.getWeedBeginTime() + "&end=" + System.currentTimeMillis();
+        if (StringUtils.hasLength(pageParam)) {
+            query = query + "&after=" + pageParam;
+        }
+
         String preSign = timestamp + "GET" + billUrl + "?" + query;
         String signature = ApiSignature.hmacSha256(preSign, secretKey);
 
@@ -414,7 +419,7 @@ public class OkxApiService implements ExchangeService {
 
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject billJson = arr.getJSONObject(i);
-                    String symbol = CommonUtil.convertOkxSymbol(billJson.getString("instId"));
+                    String symbol = CommonUtil.normalizeSymbol(billJson.getString("instId"), "okx");
                     if (!StringUtils.hasLength(symbol)) {
                         continue;
                     }
@@ -431,10 +436,13 @@ public class OkxApiService implements ExchangeService {
                         bill.setTradeFee(bill.getTradeFee() + Double.parseDouble(billJson.getString("fee")));
                     }
                     symbol2Bill.put(symbol, bill);
-                    pageParam = String.valueOf(Math.max(Long.parseLong(pageParam), Long.parseLong(billJson.getString("billId"))));
+                    pageParam = billJson.getString("billId");
+                }
+
+                if (arr.length() == limit) {
+                    this.bill(symbol2Bill, pageParam);
                 }
             }
-            this.bill(symbol2Bill, pageParam);
             return new ArrayList<>(symbol2Bill.values());
         } catch (Exception e) {
             log.error("okx position error", e);

@@ -21,6 +21,6 @@ public class Bill {
                 "手续费[" + String.format("%.3f", tradeFee) + "] " +
                 "已实现盈利[" + String.format("%.3f", tradePnl) + "] " +
                 "资金费率[" + String.format("%.3f", fundRateFee) + "] " +
-                "总收益[" + String.format("%.3f", tradeFee + tradePnl + fundRateFee) + "]\n";
+                "总收益[" + String.format("%.3f", tradeFee + tradePnl + fundRateFee) + "]";
     }
 }

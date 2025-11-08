@@ -135,7 +135,7 @@ public class TradeService {
             }
             log.error("close price = {}, finalPrice = {}", price, finalPrice);
         }
-        exchangeService.placeOrder(symbol, buySellEnum, positionSideEnum, TradeTypeEnum.LIMIT, quantity, finalPrice);
+        exchangeService.placeOrder(symbol, buySellEnum, positionSideEnum, TradeTypeEnum.MARKET, quantity, finalPrice);
     }
 
 }

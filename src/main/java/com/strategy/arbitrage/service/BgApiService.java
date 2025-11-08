@@ -322,9 +322,10 @@ public class BgApiService implements ExchangeService {
     }
 
     public static final String billUrl = "/api/v2/mix/account/bill";
+    private static final Integer limit = 100;
     public List<Bill> bill(Map<String, Bill> symbol2Bill, String pageParam) {
         String url = baseUrl + billUrl;
-        String query = "productType=USDT-FUTURES&limit=100&startTime=" + CommonUtil.getTodayBeginTime();
+        String query = "productType=USDT-FUTURES&limit=" + limit + "&startTime=" + CommonUtil.getWeedBeginTime();
         if (StringUtils.hasLength(pageParam)) {
             query = query + "&pageParam=" + pageParam;
         }
@@ -379,7 +380,10 @@ public class BgApiService implements ExchangeService {
                     symbol2Bill.put(symbol, bill);
                     pageParam = billJson.getString("billId");
                 }
-                this.bill(symbol2Bill, pageParam);
+
+                if (arr.length() == limit) {
+                    this.bill(symbol2Bill, pageParam);
+                }
             }
             return new ArrayList<>(symbol2Bill.values());
         } catch (Exception e) {
