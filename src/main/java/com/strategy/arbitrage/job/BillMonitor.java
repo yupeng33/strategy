@@ -22,6 +22,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @Repository
 public class BillMonitor {
+    
+    @Value("${alert.coin}")
+    private String coinList;
 
     private final BnApiService bnApiService;
     private final BgApiService bgApiService;
@@ -38,12 +41,13 @@ public class BillMonitor {
     @Scheduled(fixedRate = 5 * 60 * 1000,  initialDelay = 10 * 1000)
     public void checkRisk() {
         log.info("🔍 开始计算账单");
+        List<String> monitorCoinList = List.of(coinList.split(","));
         List<Bill> bnBill = bnApiService.bill(new HashMap<>(), null);
-        bnBill.forEach(e -> log.info(e.toString()));
+        bnBill.stream().filter(e -> monitorCoinList.contains(e.getSymbol())).forEach(e -> log.info(e.toString()));
         List<Bill> bgBill = bgApiService.bill(new HashMap<>(), null);
-        bgBill.forEach(e -> log.info(e.toString()));
+        bgBill.stream().filter(e -> monitorCoinList.contains(e.getSymbol())).forEach(e -> log.info(e.toString()));
         List<Bill> okxBill = okxApiService.bill(new HashMap<>(), null);
-        okxBill.forEach(e -> log.info(e.toString()));
+        okxBill.stream().filter(e -> monitorCoinList.contains(e.getSymbol())).forEach(e -> log.info(e.toString()));
     }
 
 }
