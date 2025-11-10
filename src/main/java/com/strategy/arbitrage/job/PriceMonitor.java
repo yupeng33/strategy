@@ -32,9 +32,9 @@ public class PriceMonitor {
     private TelegramNotifier telegramNotifier;
 
     static {
-        THRESHOLD.put("5m", 0.1);
-        THRESHOLD.put("15m", 0.15);
-        THRESHOLD.put("1h", 0.3);
+        THRESHOLD.put("5m", 10.0);
+        THRESHOLD.put("15m", 15.0);
+        THRESHOLD.put("1h", 30.0);
 
     }
 
