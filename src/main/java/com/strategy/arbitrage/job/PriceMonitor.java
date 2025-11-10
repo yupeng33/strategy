@@ -81,7 +81,7 @@ public class PriceMonitor {
 
         double changePercent = ((curr.getClose() - prev.getOpen()) / prev.getOpen()) * 100;
         if (Math.abs(changePercent) > THRESHOLD) {
-            String message = String.format("[🚨 波动警报] %s 在 %s 内 %s %.2f%%！价格: %.2f%n",
+            String message = String.format("[🚨 波动警报] %s 在 %s 内 %s %.2f%%！价格: %.4f%n",
                     symbol, interval, changePercent > 0 ? "上涨" : "下跌", Math.abs(changePercent), curr.getClose());
             telegramNotifier.send(message);
             lastAlertTimes.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(interval, now);
