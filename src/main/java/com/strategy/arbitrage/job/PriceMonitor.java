@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 @Repository
 public class PriceMonitor {
 
-    private static final double THRESHOLD = 10.0; // 10%
+    private static final Map<String, Double> THRESHOLD = new HashMap<>(); // 10%
     private static final int BATCH_SIZE = 50;      // 每批50个币种
     private final Map<String, Map<String, Long>> lastAlertTimes = new ConcurrentHashMap<>();
 
@@ -29,6 +30,13 @@ public class PriceMonitor {
     private BnApiService bnApiService;
     @Resource
     private TelegramNotifier telegramNotifier;
+
+    static {
+        THRESHOLD.put("5m", 0.1);
+        THRESHOLD.put("15m", 0.15);
+        THRESHOLD.put("1h", 0.3);
+
+    }
 
     @Scheduled(fixedRate = 60 * 1000)
     private void refreshSymbols() {
@@ -60,10 +68,7 @@ public class PriceMonitor {
     private void checkSymbol(String symbol) {
         long now = System.currentTimeMillis();
 
-        // 按需检查三个周期
-        checkInterval(symbol, "5m", 2, now);
-        checkInterval(symbol, "15m", 2, now);
-        checkInterval(symbol, "1h", 2, now);
+        THRESHOLD.forEach((interval, threshold) -> checkInterval(symbol, interval, 2, now));
     }
 
     private void checkInterval(String symbol, String interval, int limit, long now) {
@@ -80,7 +85,7 @@ public class PriceMonitor {
         Kline curr = klines.get(klines.size() - 1);
 
         double changePercent = ((curr.getClose() - prev.getOpen()) / prev.getOpen()) * 100;
-        if (Math.abs(changePercent) > THRESHOLD) {
+        if (Math.abs(changePercent) > THRESHOLD.get(interval)) {
             String message = String.format("[🚨 波动警报] %s 在 %s 内 %s %.2f%%！价格: %.4f%n",
                     symbol, interval, changePercent > 0 ? "上涨" : "下跌", Math.abs(changePercent), curr.getClose());
             telegramNotifier.send(message);
