@@ -7,10 +7,7 @@ import com.strategy.arbitrage.common.enums.BuySellEnum;
 import com.strategy.arbitrage.common.enums.ExchangeEnum;
 import com.strategy.arbitrage.common.enums.PositionSideEnum;
 import com.strategy.arbitrage.common.enums.TradeTypeEnum;
-import com.strategy.arbitrage.model.Bill;
-import com.strategy.arbitrage.model.FundingRate;
-import com.strategy.arbitrage.model.Price;
-import com.strategy.arbitrage.model.TickerLimit;
+import com.strategy.arbitrage.model.*;
 import com.strategy.arbitrage.util.CommonUtil;
 import com.strategy.arbitrage.util.TelegramNotifier;
 import lombok.extern.slf4j.Slf4j;
@@ -186,6 +183,40 @@ public class BnApiService implements ExchangeService {
                 tickerLimit.setMaxQty(Double.parseDouble(lotSizeFilter.getString("maxQty")));
                 tickerLimit.setStepSize(Double.parseDouble(lotSizeFilter.getString("stepSize")));
                 result.add(tickerLimit);
+            }
+            return result;
+        } catch (Exception e) {
+            log.error("binance tickerLimit error", e);
+            return new ArrayList<>();
+        }
+    }
+
+    private static final String klinesUrl = "/fapi/v1/klines";
+    public List<Kline> getKlines(String symbol, String interval, int limit) {
+        String url = baseUrl + klinesUrl;
+        HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
+        builder.addQueryParameter("symbol",symbol);
+        builder.addQueryParameter("interval", interval);
+        builder.addQueryParameter("limit", String.valueOf(limit));
+        Request request = new Request.Builder().url(builder.build()).build();
+
+        List<Kline> result = new ArrayList<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            if (res.contains("code") || res.contains("msg")) {
+                return new ArrayList<>();
+            }
+
+            JSONArray arr = new JSONArray(res);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONArray item = arr.getJSONArray(i);
+                long openTime = item.getLong(0);
+                double open = Double.parseDouble(item.getString(1));
+                double high = Double.parseDouble(item.getString(2));
+                double low = Double.parseDouble(item.getString(3));
+                double close = Double.parseDouble(item.getString(4));
+                double vol = Double.parseDouble(item.getString(5));
+                result.add(new Kline(symbol, openTime, open, high, low, close, vol));
             }
             return result;
         } catch (Exception e) {
