@@ -29,7 +29,7 @@ alert:
   price-diff-per: 0.1
   fundRate-diff-per: 0.01
   margin-diff-per: 0.01
-  coin: "0GUSDT,SOONUSDT"
+  coin: "0GUSDT,SOONUSDT,MERLUSDT"
 
 
 order-price-diff-per: 0.0005
