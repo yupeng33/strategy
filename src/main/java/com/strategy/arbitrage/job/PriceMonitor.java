@@ -32,15 +32,15 @@ public class PriceMonitor {
     private TelegramNotifier telegramNotifier;
 
     static {
-        THRESHOLD.put("5m", 10.0);
-        THRESHOLD.put("15m", 15.0);
-        THRESHOLD.put("1h", 30.0);
+        THRESHOLD.put("5m", 5.0);
+        THRESHOLD.put("15m", 10.0);
+        THRESHOLD.put("1h", 15.0);
 
     }
 
-    @Scheduled(fixedRate = 60 * 1000)
+    @Scheduled(fixedRate = 60 * 1000, initialDelay = 4 * 1000)
     private void refreshSymbols() {
-        log.info("🔄 正在监听币安涨跌幅...");
+        log.info("🔄 正在监听币安涨跌幅");
         List<String> allSymbols = StaticConstant.bnSymbolFilters.values().stream().map(TickerLimit::getSymbol).toList();
         if (allSymbols.isEmpty()) {
             log.info("⚠️ 币种列表为空，跳过本轮检查");
@@ -53,6 +53,7 @@ public class PriceMonitor {
             // 每批之间稍作延迟，避免突发流量
             try { Thread.sleep(500); } catch (InterruptedException ignored) {}
         }
+        log.info("🔄 监听币安涨跌幅结束");
     }
 
     private void processBatch(List<String> symbols) {
@@ -74,7 +75,7 @@ public class PriceMonitor {
     private void checkInterval(String symbol, String interval, int limit, long now) {
         Map<String, Long> intervals = lastAlertTimes.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>());
         Long lastTime = intervals.get(interval);
-        if (lastTime != null && (now - lastTime) >= TimeUnit.MINUTES.toMillis(5)) {
+        if (lastTime != null && (now - lastTime) <= TimeUnit.MINUTES.toMillis(5)) {
             return;
         }
 
