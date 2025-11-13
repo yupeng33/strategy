@@ -42,12 +42,32 @@ public class BillMonitor {
     public void checkRisk() {
         log.info("🔍 开始计算账单");
         List<String> monitorCoinList = List.of(coinList.split(","));
-        List<Bill> bnBill = bnApiService.bill(new HashMap<>(), null);
-        bnBill.stream().filter(e -> monitorCoinList.contains(e.getSymbol())).forEach(e -> log.info(e.toString()));
-        List<Bill> bgBill = bgApiService.bill(new HashMap<>(), null);
-        bgBill.stream().filter(e -> monitorCoinList.contains(e.getSymbol())).forEach(e -> log.info(e.toString()));
-        List<Bill> okxBill = okxApiService.bill(new HashMap<>(), null);
-        okxBill.stream().filter(e -> monitorCoinList.contains(e.getSymbol())).forEach(e -> log.info(e.toString()));
+        List<Bill> bnBills = bnApiService.bill(new HashMap<>(), null);
+        List<Bill> bgBills = bgApiService.bill(new HashMap<>(), null);
+        List<Bill> okxBills = okxApiService.bill(new HashMap<>(), null);
+
+        monitorCoinList.forEach(coin -> {
+            Bill bnBill = bnBills.stream().filter(e -> coin.equals(e.getSymbol())).findFirst().orElse(null);
+            Bill bgBill = bgBills.stream().filter(e -> coin.equals(e.getSymbol())).findFirst().orElse(null);
+            Bill okxBill = okxBills.stream().filter(e -> coin.equals(e.getSymbol())).findFirst().orElse(null);
+
+            double profit = 0;
+            if (bnBill != null) {
+                profit = profit + bnBill.getTradePnl() + bnBill.getTradeFee() + bnBill.getFundRateFee();
+                log.info(bnBill.toString());
+            }
+
+            if (bgBill != null) {
+                profit = profit + bgBill.getTradePnl() + bgBill.getTradeFee() + bgBill.getFundRateFee();
+                log.info(bgBill.toString());
+            }
+
+            if (okxBill != null) {
+                profit = profit + okxBill.getTradePnl() + okxBill.getTradeFee() + okxBill.getFundRateFee();
+                log.info(okxBill.toString());
+            }
+            log.info("[{}] profit is [{}]", coin, String.format("%.3f", profit));
+        });
     }
 
 }
