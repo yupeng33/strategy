@@ -1,6 +1,7 @@
 package com.strategy.arbitrage.job;
 
 import com.strategy.arbitrage.common.constant.StaticConstant;
+import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.service.BgApiService;
 import com.strategy.arbitrage.service.BnApiService;
 import com.strategy.arbitrage.model.Position;
@@ -46,7 +47,7 @@ public class RiskMonitor {
         this.okxApiService = okxApiService;
     }
 
-    @Scheduled(fixedRate = 5 * 60 * 1000,  initialDelay = 10 * 1000)
+//    @Scheduled(fixedRate = 5 * 60 * 1000,  initialDelay = 10 * 1000)
     public void checkRisk() {
         log.info("🔍 开始计算持仓风险");
         if (StaticConstant.binanceFunding.isEmpty() || StaticConstant.bitgetPrice.isEmpty() || StaticConstant.okxFunding.isEmpty()) {
@@ -81,6 +82,10 @@ public class RiskMonitor {
             Position bgPos = bgMap.get(symbol);
             Position okxPos = okxMap.get(symbol);
 
+            FundingRate bnFundingRate = StaticConstant.binanceFunding.get(symbol);
+            FundingRate bgFundingRate = StaticConstant.bitgetFunding.get(symbol);
+            FundingRate okxFundingRate = StaticConstant.okxFunding.get(symbol);
+
             // 价格偏离 ≥ 10%
             checkPriceDiff(symbol, bnPos);
             checkPriceDiff(symbol, bgPos);
@@ -95,6 +100,12 @@ public class RiskMonitor {
                             " BN: " + String.format("%.4f", bnPos.getMargin()) +
                             " vs Bitget: " + String.format("%.4f", bgPos.getMargin()));
                 }
+
+                if (Math.abs(bnFundingRate.getRate() - bgFundingRate.getRate()) < 0.001) {
+                    notifier.send("⚠️ 持仓费率差异过小：" + symbol +
+                            " BN: " + String.format("%.4f", bnFundingRate.getRate()) +
+                            " vs Bitget: " + String.format("%.4f", bgFundingRate.getRate()));
+                }
             }
 
             if (bnPos != null && okxPos != null){
@@ -104,6 +115,12 @@ public class RiskMonitor {
                             " BN: " + String.format("%.4f", bnPos.getMargin()) +
                             " vs OKX: " + String.format("%.4f", okxPos.getMargin()));
                 }
+
+                if (Math.abs(bnFundingRate.getRate() - okxFundingRate.getRate()) < 0.001) {
+                    notifier.send("⚠️ 持仓费率差异过小：" + symbol +
+                            " BN: " + String.format("%.4f", bnFundingRate.getRate()) +
+                            " vs Bitget: " + String.format("%.4f", okxFundingRate.getRate()));
+                }
             }
 
             if (okxPos != null && bgPos != null){
@@ -112,6 +129,12 @@ public class RiskMonitor {
                     notifier.send("⚠️ 持仓本金差异过大：" + symbol +
                             " OKX: " + String.format("%.4f", okxPos.getMargin()) +
                             " vs Bitget: " + String.format("%.4f", bgPos.getMargin()));
+                }
+
+                if (Math.abs(okxFundingRate.getRate() - bgFundingRate.getRate()) < 0.001) {
+                    notifier.send("⚠️ 持仓费率差异过小：" + symbol +
+                            " BN: " + String.format("%.4f", okxFundingRate.getRate()) +
+                            " vs Bitget: " + String.format("%.4f", bgFundingRate.getRate()));
                 }
             }
         }

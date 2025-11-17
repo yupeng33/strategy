@@ -20,7 +20,7 @@ public class Bill {
                 "代币[" + symbol + "] " +
                 "手续费[" + String.format("%.3f", tradeFee) + "] " +
                 "已实现盈利[" + String.format("%.3f", tradePnl) + "] " +
-                "资金费率[" + String.format("%.3f", fundRateFee) + "] " +
+                "资金费[" + String.format("%.3f", fundRateFee) + "] " +
                 "总收益[" + String.format("%.3f", tradeFee + tradePnl + fundRateFee) + "]";
     }
 }
