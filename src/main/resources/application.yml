@@ -29,7 +29,7 @@ alert:
   price-diff-per: 0.1
   fundRate-diff-per: 0.01
   margin-diff-per: 0.01
-  coin: "ZORAUSDT,SOONUSDT"
+  coin: "ZORAUSDT,SOONUSDT,PARTIUSDT"
 
 
 order-price-diff-per: 0.0005
