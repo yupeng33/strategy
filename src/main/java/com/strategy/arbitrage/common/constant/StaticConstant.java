@@ -21,4 +21,6 @@ public class StaticConstant {
     public static Map<String, TickerLimit> bnSymbolFilters = new HashMap<>();
     public static Map<String, TickerLimit> bgSymbolFilters = new HashMap<>();
     public static Map<String, TickerLimit> okxSymbolFilters = new HashMap<>();
+
+    public static boolean initFlag = false;
 }

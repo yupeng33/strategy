@@ -49,6 +49,7 @@ public class BasicDataMonitor {
         StaticConstant.bnSymbolFilters = bnApiService.tickerLimit().stream().collect(Collectors.toMap(TickerLimit::getSymbol, Function.identity()));
         StaticConstant.bgSymbolFilters = bgApiService.tickerLimit().stream().collect(Collectors.toMap(TickerLimit::getSymbol, Function.identity()));
         StaticConstant.okxSymbolFilters = okxApiService.tickerLimit().stream().collect(Collectors.toMap(TickerLimit::getSymbol, Function.identity()));
+        StaticConstant.initFlag = true;
         log.info("🔍 同步费率和价格数据结束");
     }
 

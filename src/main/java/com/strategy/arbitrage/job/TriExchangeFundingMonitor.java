@@ -38,7 +38,11 @@ public class TriExchangeFundingMonitor {
     private OkxApiService okxApiService;
 
     @Scheduled(fixedRate = POLLING_INTERVAL_MINUTES * 60 * 1000, initialDelay = 3 * 1000)
-    public void run() {
+    public void run() throws InterruptedException {
+        while (!StaticConstant.initFlag) {
+            Thread.sleep(1000);
+        }
+
         if (diffFundRateShow) {
             log.info("🔍 三交易所资金费率监控系统启动（OKX + 币安 + Bitget）...");
             log.info("📊 每 {} 分钟输出资金费率差距最大的前 {} 组合", POLLING_INTERVAL_MINUTES, TOP_N);
