@@ -31,6 +31,7 @@ public class TelegramMessageMonitor {
 
     private String baseUrl;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final CloseableHttpClient httpClient = HttpClients.createDefault();
     private long lastUpdateId = 0;
 
     @Resource
@@ -49,9 +50,9 @@ public class TelegramMessageMonitor {
     public void fetchUpdates() {
         String url = baseUrl + "/getUpdates?offset=" + (lastUpdateId + 1) + "&timeout=0";
 
-        try (CloseableHttpClient client = HttpClients.createDefault()) {
+        try {
             HttpGet request = new HttpGet(url);
-            try (CloseableHttpResponse response = client.execute(request)) {
+            try (CloseableHttpResponse response = httpClient.execute(request)) {
                 if (response.getStatusLine().getStatusCode() == 200) {
                     UpdateResponse updateResponse = objectMapper.readValue(
                             response.getEntity().getContent(), UpdateResponse.class);
@@ -65,7 +66,7 @@ public class TelegramMessageMonitor {
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Failed to fetch Telegram updates", e);
         }
     }
 
@@ -99,18 +100,18 @@ public class TelegramMessageMonitor {
     }
 
     private void sendMessage(Long chatId, String text) {
-        try (CloseableHttpClient client = HttpClients.createDefault()) {
+        try {
             String encodedText = URLEncoder.encode(text, StandardCharsets.UTF_8);
             String url = baseUrl + "/sendMessage?chat_id=" + chatId + "&text=" + encodedText;
 
             HttpGet request = new HttpGet(url);
-            try (CloseableHttpResponse response = client.execute(request)) {
+            try (CloseableHttpResponse response = httpClient.execute(request)) {
                 if (response.getStatusLine().getStatusCode() != 200) {
-                    System.err.println("发送失败: " + response.getStatusLine());
+                    log.error("发送失败: {}", response.getStatusLine());
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Failed to send Telegram message to chatId={}", chatId, e);
         }
     }
 }

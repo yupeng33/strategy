@@ -191,19 +191,51 @@ public class BnApiService implements ExchangeService {
         }
     }
 
+    private static final String priceChangePctUrl = "/fapi/v1/ticker/24hr";
+
+    /**
+     * Returns a map of normalized symbol -> 24h priceChangePercent for all BN futures.
+     */
+    public Map<String, Double> allPriceChangePct() {
+        String url = baseUrl + priceChangePctUrl;
+        Request request = new Request.Builder().url(url).build();
+        Map<String, Double> result = new HashMap<>();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String res = response.body().string();
+            JSONArray arr = new JSONArray(res);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject item = arr.getJSONObject(i);
+                String symbol = CommonUtil.normalizeSymbol(item.getString("symbol"), ExchangeEnum.BINANCE.getAbbr());
+                double changePct = Double.parseDouble(item.getString("priceChangePercent"));
+                result.put(symbol, changePct);
+            }
+        } catch (Exception e) {
+            log.error("binance allPriceChangePct error", e);
+        }
+        return result;
+    }
+
     private static final String klinesUrl = "/fapi/v1/klines";
+
     public List<Kline> getKlines(String symbol, String interval, int limit) {
-        String url = baseUrl + klinesUrl;
-        HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
-        builder.addQueryParameter("symbol",symbol);
+        return getKlines(symbol, interval, limit, null);
+    }
+
+    public List<Kline> getKlines(String symbol, String interval, int limit, Long startTime) {
+        HttpUrl.Builder builder = HttpUrl.parse(baseUrl + klinesUrl).newBuilder();
+        builder.addQueryParameter("symbol", symbol);
         builder.addQueryParameter("interval", interval);
         builder.addQueryParameter("limit", String.valueOf(limit));
+        if (startTime != null) {
+            builder.addQueryParameter("startTime", String.valueOf(startTime));
+        }
         Request request = new Request.Builder().url(builder.build()).build();
 
         List<Kline> result = new ArrayList<>();
         try (Response response = HttpUtil.client.newCall(request).execute()) {
             String res = response.body().string();
-            if (res.contains("code") || res.contains("msg")) {
+            if (res.startsWith("{")) {
+                log.warn("binance klines error response for {}: {}", symbol, res);
                 return new ArrayList<>();
             }
 
@@ -216,11 +248,12 @@ public class BnApiService implements ExchangeService {
                 double low = Double.parseDouble(item.getString(3));
                 double close = Double.parseDouble(item.getString(4));
                 double vol = Double.parseDouble(item.getString(5));
-                result.add(new Kline(symbol, openTime, open, high, low, close, vol));
+                long closeTime = item.getLong(6);
+                result.add(new Kline(null, symbol, interval, openTime, open, high, low, close, vol, closeTime));
             }
             return result;
         } catch (Exception e) {
-            log.error("binance tickerLimit error", e);
+            log.error("binance getKlines error for {}: {}", symbol, e.getMessage());
             return new ArrayList<>();
         }
     }

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.strategy.arbitrage.mapper.KlineMapper">
+
+    <insert id="insertIgnore">
+        INSERT IGNORE INTO kline (symbol, interval_type, open_time, open, high, low, close, volume, close_time)
+        VALUES (#{symbol}, #{intervalType}, #{openTime}, #{open}, #{high}, #{low}, #{close}, #{volume}, #{closeTime})
+    </insert>
+
+    <insert id="batchInsertIgnore">
+        INSERT IGNORE INTO kline (symbol, interval_type, open_time, open, high, low, close, volume, close_time)
+        VALUES
+        <foreach collection="list" item="k" separator=",">
+            (#{k.symbol}, #{k.intervalType}, #{k.openTime}, #{k.open}, #{k.high}, #{k.low}, #{k.close}, #{k.volume}, #{k.closeTime})
+        </foreach>
+    </insert>
+
+    <select id="findMaxOpenTime" resultType="java.lang.Long">
+        SELECT MAX(open_time)
+        FROM kline
+        WHERE symbol = #{symbol}
+          AND interval_type = #{intervalType}
+    </select>
+
+    <select id="findBySymbolAndInterval" resultType="com.strategy.arbitrage.model.Kline">
+        SELECT id, symbol, interval_type, open_time, open, high, low, close, volume, close_time
+        FROM kline
+        WHERE symbol = #{symbol}
+          AND interval_type = #{intervalType}
+        ORDER BY open_time DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

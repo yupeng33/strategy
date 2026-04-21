@@ -6,15 +6,17 @@ import com.strategy.arbitrage.service.BnApiService;
 import com.strategy.arbitrage.service.OkxApiService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import javax.annotation.Resource;
-import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Slf4j
-@Repository
+@Component
 public class BillMonitor {
 
     @Value("${alert.coin}")
@@ -35,14 +37,14 @@ public class BillMonitor {
     public void checkRisk(String symbol) {
         log.info("🔍 开始计算账单");
         List<String> monitorCoinList = StringUtils.hasLength(symbol) ? List.of(symbol) : List.of(coinList.split(","));
-        List<Bill> bnBills = bnApiService.bill(new HashMap<>(), null);
-        List<Bill> bgBills = bgApiService.bill(new HashMap<>(), null);
-        List<Bill> okxBills = okxApiService.bill(new HashMap<>(), null);
+        Map<String, Bill> bnBillMap = bnApiService.bill(Map.of(), null).stream().collect(Collectors.toMap(Bill::getSymbol, Function.identity(), (a, b) -> a));
+        Map<String, Bill> bgBillMap = bgApiService.bill(Map.of(), null).stream().collect(Collectors.toMap(Bill::getSymbol, Function.identity(), (a, b) -> a));
+        Map<String, Bill> okxBillMap = okxApiService.bill(Map.of(), null).stream().collect(Collectors.toMap(Bill::getSymbol, Function.identity(), (a, b) -> a));
 
         monitorCoinList.forEach(coin -> {
-            Bill bnBill = bnBills.stream().filter(e -> coin.equals(e.getSymbol())).findFirst().orElse(null);
-            Bill bgBill = bgBills.stream().filter(e -> coin.equals(e.getSymbol())).findFirst().orElse(null);
-            Bill okxBill = okxBills.stream().filter(e -> coin.equals(e.getSymbol())).findFirst().orElse(null);
+            Bill bnBill = bnBillMap.get(coin);
+            Bill bgBill = bgBillMap.get(coin);
+            Bill okxBill = okxBillMap.get(coin);
 
             double profit = 0;
             if (bnBill != null) {

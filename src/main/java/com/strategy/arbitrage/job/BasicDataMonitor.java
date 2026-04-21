@@ -13,7 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
@@ -25,7 +25,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Slf4j
-@Repository
+@Component
 public class BasicDataMonitor {
 
     @Resource
@@ -35,7 +35,7 @@ public class BasicDataMonitor {
     @Resource
     private OkxApiService okxApiService;
 
-    @Scheduled(fixedRate = 5 * 60 * 1000)
+//    @Scheduled(fixedRate = 5 * 60 * 1000)
     public void run() {
         log.info("🔍 开始同步费率和价格数据");
         StaticConstant.binanceFunding = bnApiService.fundRate(null).stream().collect(Collectors.toMap(FundingRate::getSymbol, Function.identity()));

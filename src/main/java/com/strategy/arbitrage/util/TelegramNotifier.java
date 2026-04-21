@@ -1,6 +1,7 @@
 package com.strategy.arbitrage.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Map;
 
+@Slf4j
 @Service
 public class TelegramNotifier {
 
@@ -44,7 +46,7 @@ public class TelegramNotifier {
 
             client.newCall(request).execute().close();
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Failed to send Telegram message", e);
         }
     }
 }

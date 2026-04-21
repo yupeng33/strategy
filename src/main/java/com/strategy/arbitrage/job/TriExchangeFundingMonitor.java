@@ -9,7 +9,7 @@ import com.strategy.arbitrage.service.OkxApiService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 @Slf4j
-@Repository
+@Component
 public class TriExchangeFundingMonitor {
 
     private static final int TOP_N = 10;
@@ -38,9 +38,10 @@ public class TriExchangeFundingMonitor {
     private OkxApiService okxApiService;
 
     @Scheduled(fixedRate = POLLING_INTERVAL_MINUTES * 60 * 1000, initialDelay = 3 * 1000)
-    public void run() throws InterruptedException {
-        while (!StaticConstant.initFlag) {
-            Thread.sleep(1000);
+    public void run() {
+        if (!StaticConstant.initFlag) {
+            log.info("⏳ 数据未初始化，跳过本轮资金费率监控");
+            return;
         }
 
         if (diffFundRateShow) {
@@ -114,7 +115,7 @@ public class TriExchangeFundingMonitor {
         System.out.println("-".repeat(140));
 
         for (RateDiff d : list) {
-            String direction = d.okxFundingA > d.fundingRateB ? "高→低" : "低→高";
+            String direction = d.fundingRateA > d.fundingRateB ? "高→低" : "低→高";
             System.out.printf("%-16s %-10s %-10s %-10.6f %-12.6f %-8.2f %-12.6f %-12.6f %-10d %-10d %-12.6f %-10s%n",
                     d.symbol,
                     d.exchangeA,
@@ -122,7 +123,7 @@ public class TriExchangeFundingMonitor {
                     d.priceA,
                     d.priceB,
                     Math.abs(d.priceA - d.priceB) / d.priceA * 100,
-                    d.okxFundingA * 100,
+                    d.fundingRateA * 100,
                     d.fundingRateB * 100,
                     d.intervalA,
                     d.intervalB,
@@ -150,7 +151,7 @@ public class TriExchangeFundingMonitor {
         String exchangeA, exchangeB;
         double priceA, priceB;
         long intervalA, intervalB;
-        double okxFundingA, fundingRateB, diff;
+        double fundingRateA, fundingRateB, diff;
 
         public RateDiff(String symbol, String exchangeA, String exchangeB,
                         double priceA, double priceB, long intervalA, long intervalB,
@@ -162,7 +163,7 @@ public class TriExchangeFundingMonitor {
             this.priceB = priceB;
             this.intervalA = intervalA;
             this.intervalB = intervalB;
-            this.okxFundingA = fundingRateA;
+            this.fundingRateA = fundingRateA;
             this.fundingRateB = fundingRateB;
             this.diff = diff;
         }

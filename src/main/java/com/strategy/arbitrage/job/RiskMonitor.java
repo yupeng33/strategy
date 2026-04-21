@@ -11,7 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -22,7 +22,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
-@Repository
+@Component
 public class RiskMonitor {
 
     @Value("${alert.price-diff-per: 0.1}")
@@ -91,52 +91,33 @@ public class RiskMonitor {
             checkPriceDiff(symbol, bgPos);
             checkPriceDiff(symbol, okxPos);
 
-            double marginDiffPerTemp;
             // 两所本金偏离 ≥ 1%
-            if (bnPos != null && bgPos != null){
-                marginDiffPerTemp = Math.abs(bnPos.getMargin() - bgPos.getMargin()) / bnPos.getMargin();
-                if (marginDiffPerTemp > marginDiffPer) {
-                    notifier.send("⚠️ 持仓本金差异过大：" + symbol +
-                            " BN: " + String.format("%.4f", bnPos.getMargin()) +
-                            " vs Bitget: " + String.format("%.4f", bgPos.getMargin()));
-                }
-
-                if (Math.abs(bnFundingRate.getRate() - bgFundingRate.getRate()) < 0.001) {
-                    notifier.send("⚠️ 持仓费率差异过小：" + symbol +
-                            " BN: " + String.format("%.4f", bnFundingRate.getRate()) +
-                            " vs Bitget: " + String.format("%.4f", bgFundingRate.getRate()));
-                }
+            if (bnPos != null && bgPos != null) {
+                checkMarginAndFundingDiff(symbol, "BN", bnPos, bnFundingRate, "Bitget", bgPos, bgFundingRate);
             }
-
-            if (bnPos != null && okxPos != null){
-                marginDiffPerTemp = Math.abs(bnPos.getMargin() - okxPos.getMargin()) / bnPos.getMargin();
-                if (marginDiffPerTemp > marginDiffPer) {
-                    notifier.send("⚠️ 持仓本金差异过大：" + symbol +
-                            " BN: " + String.format("%.4f", bnPos.getMargin()) +
-                            " vs OKX: " + String.format("%.4f", okxPos.getMargin()));
-                }
-
-                if (Math.abs(bnFundingRate.getRate() - okxFundingRate.getRate()) < 0.001) {
-                    notifier.send("⚠️ 持仓费率差异过小：" + symbol +
-                            " BN: " + String.format("%.4f", bnFundingRate.getRate()) +
-                            " vs Bitget: " + String.format("%.4f", okxFundingRate.getRate()));
-                }
+            if (bnPos != null && okxPos != null) {
+                checkMarginAndFundingDiff(symbol, "BN", bnPos, bnFundingRate, "OKX", okxPos, okxFundingRate);
             }
-
-            if (okxPos != null && bgPos != null){
-                marginDiffPerTemp = Math.abs(okxPos.getMargin() - bgPos.getMargin()) / okxPos.getMargin();
-                if (marginDiffPerTemp > marginDiffPer) {
-                    notifier.send("⚠️ 持仓本金差异过大：" + symbol +
-                            " OKX: " + String.format("%.4f", okxPos.getMargin()) +
-                            " vs Bitget: " + String.format("%.4f", bgPos.getMargin()));
-                }
-
-                if (Math.abs(okxFundingRate.getRate() - bgFundingRate.getRate()) < 0.001) {
-                    notifier.send("⚠️ 持仓费率差异过小：" + symbol +
-                            " BN: " + String.format("%.4f", okxFundingRate.getRate()) +
-                            " vs Bitget: " + String.format("%.4f", bgFundingRate.getRate()));
-                }
+            if (okxPos != null && bgPos != null) {
+                checkMarginAndFundingDiff(symbol, "OKX", okxPos, okxFundingRate, "Bitget", bgPos, bgFundingRate);
             }
+        }
+    }
+
+    private void checkMarginAndFundingDiff(String symbol,
+                                            String nameA, Position posA, FundingRate rateA,
+                                            String nameB, Position posB, FundingRate rateB) {
+        double marginDiff = Math.abs(posA.getMargin() - posB.getMargin()) / posA.getMargin();
+        if (marginDiff > marginDiffPer) {
+            notifier.send("⚠️ 持仓本金差异过大：" + symbol +
+                    " " + nameA + ": " + String.format("%.4f", posA.getMargin()) +
+                    " vs " + nameB + ": " + String.format("%.4f", posB.getMargin()));
+        }
+
+        if (rateA != null && rateB != null && Math.abs(rateA.getRate() - rateB.getRate()) < 0.001) {
+            notifier.send("⚠️ 持仓费率差异过小：" + symbol +
+                    " " + nameA + ": " + String.format("%.4f", rateA.getRate()) +
+                    " vs " + nameB + ": " + String.format("%.4f", rateB.getRate()));
         }
     }
 

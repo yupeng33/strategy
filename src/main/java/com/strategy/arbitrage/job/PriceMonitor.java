@@ -7,7 +7,7 @@ import com.strategy.arbitrage.service.BnApiService;
 import com.strategy.arbitrage.util.TelegramNotifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
-@Repository
+@Component
 public class PriceMonitor {
 
     private static final Map<String, Double> THRESHOLD = new HashMap<>(); // 10%
@@ -33,12 +33,12 @@ public class PriceMonitor {
 
     static {
         THRESHOLD.put("5m", 5.0);
-        THRESHOLD.put("15m", 10.0);
-        THRESHOLD.put("1h", 15.0);
+//        THRESHOLD.put("15m", 10.0);
+//        THRESHOLD.put("1h", 15.0);
 
     }
 
-//    @Scheduled(fixedRate = 60 * 1000, initialDelay = 4 * 1000)
+    @Scheduled(fixedRate = 60 * 1000, initialDelay = 4 * 1000)
     private void refreshSymbols() {
         log.info("🔄 正在监听币安涨跌幅");
         List<String> allSymbols = StaticConstant.bnSymbolFilters.values().stream().map(TickerLimit::getSymbol).toList();
@@ -50,8 +50,6 @@ public class PriceMonitor {
 
         for (List<String> batch : batches) {
             processBatch(batch);
-            // 每批之间稍作延迟，避免突发流量
-            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
         }
         log.info("🔄 监听币安涨跌幅结束");
     }
@@ -90,7 +88,7 @@ public class PriceMonitor {
             String message = String.format("[🚨 波动警报] %s 在 %s 内 %s %.2f%%！价格: %.4f%n",
                     symbol, interval, changePercent > 0 ? "上涨" : "下跌", Math.abs(changePercent), curr.getClose());
             telegramNotifier.send(message);
-            lastAlertTimes.computeIfAbsent(symbol, k -> new ConcurrentHashMap<>()).put(interval, now);
+            intervals.put(interval, now);
         }
     }
 
