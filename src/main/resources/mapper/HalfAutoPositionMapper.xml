@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.strategy.halfauto.mapper.HalfAutoPositionMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO halfauto_position (symbol, position_side, entry_price, initial_margin, leverage, exchange)
+        VALUES (#{symbol}, #{positionSide}, #{entryPrice}, #{initialMargin}, #{leverage}, #{exchange})
+    </insert>
+
+    <select id="findOpen" resultType="com.strategy.halfauto.model.HalfAutoPosition">
+        SELECT id, symbol, position_side, entry_price, initial_margin, leverage, exchange, created_at, closed_at
+        FROM halfauto_position
+        WHERE symbol = #{symbol} AND position_side = #{positionSide} AND closed_at IS NULL
+        LIMIT 1
+    </select>
+
+    <update id="close">
+        UPDATE halfauto_position
+        SET closed_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM halfauto_position WHERE id = #{id}
+    </delete>
+
+</mapper>

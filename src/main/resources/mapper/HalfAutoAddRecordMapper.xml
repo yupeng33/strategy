@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.strategy.halfauto.mapper.HalfAutoAddRecordMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO halfauto_add_record
+            (position_id, symbol, position_side, trigger_price, last_add_price, add_margin, leverage, quantity, add_count)
+        VALUES
+            (#{positionId}, #{symbol}, #{positionSide}, #{triggerPrice}, #{lastAddPrice}, #{addMargin}, #{leverage}, #{quantity}, #{addCount})
+    </insert>
+
+    <select id="findLatest" resultType="com.strategy.halfauto.model.HalfAutoAddRecord">
+        SELECT id, position_id, symbol, position_side, trigger_price, last_add_price, add_margin, leverage, quantity, add_count, created_at
+        FROM halfauto_add_record
+        WHERE position_id = #{positionId}
+        ORDER BY add_count DESC
+        LIMIT 1
+    </select>
+
+    <delete id="deleteByPositionId">
+        DELETE FROM halfauto_add_record WHERE position_id = #{positionId}
+    </delete>
+
+</mapper>

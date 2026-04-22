@@ -47,6 +47,7 @@ public class BnApiService implements ExchangeService {
     private static final String fundRateUrl = "/fapi/v1/premiumIndex";
 
     public List<FundingRate> fundRate(String symbol) {
+        log.info("fundRate symbol={}", symbol);
         String url = baseUrl + fundRateUrl;
         HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
         if (StringUtils.hasLength(symbol)) {
@@ -84,6 +85,7 @@ public class BnApiService implements ExchangeService {
     private static final String fundingInfoUrl = "/fapi/v1/fundingInfo";
 
     public List<JSONObject> fundingInfo(String symbol) {
+        log.info("fundingInfo symbol={}", symbol);
         String url = baseUrl + fundingInfoUrl;
         HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
         if (StringUtils.hasLength(symbol)) {
@@ -110,6 +112,7 @@ public class BnApiService implements ExchangeService {
 
     @Override
     public List<Price> price(String symbol) {
+        log.info("price symbol={}", symbol);
         String url = baseUrl + priceUrl;
         HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
         if (StringUtils.hasLength(symbol)) {
@@ -150,6 +153,7 @@ public class BnApiService implements ExchangeService {
 
     @Override
     public List<TickerLimit> tickerLimit() {
+        log.info("tickerLimit");
         String url = baseUrl + tickerLimit;
         HttpUrl.Builder builder = HttpUrl.parse(url).newBuilder();
         Request request = new Request.Builder().url(builder.build()).build();
@@ -165,12 +169,12 @@ public class BnApiService implements ExchangeService {
                 JSONArray filters = exchangeInfo.getJSONArray("filters");
 
                 JSONObject lotSizeFilter = null;
+                JSONObject priceFilter   = null;
                 for (int j = 0; j < filters.length(); j++) {
                     JSONObject filter = filters.getJSONObject(j);
-                    if ("LOT_SIZE".equals(filter.getString("filterType"))) {
-                        lotSizeFilter = filter;
-                        break;
-                    }
+                    String filterType = filter.getString("filterType");
+                    if ("LOT_SIZE".equals(filterType))    lotSizeFilter = filter;
+                    if ("PRICE_FILTER".equals(filterType)) priceFilter  = filter;
                 }
 
                 if (lotSizeFilter == null) {
@@ -182,6 +186,9 @@ public class BnApiService implements ExchangeService {
                 tickerLimit.setMinQty(Double.parseDouble(lotSizeFilter.getString("minQty")));
                 tickerLimit.setMaxQty(Double.parseDouble(lotSizeFilter.getString("maxQty")));
                 tickerLimit.setStepSize(Double.parseDouble(lotSizeFilter.getString("stepSize")));
+                if (priceFilter != null) {
+                    tickerLimit.setTickSize(Double.parseDouble(priceFilter.getString("tickSize")));
+                }
                 result.add(tickerLimit);
             }
             return result;
@@ -197,6 +204,7 @@ public class BnApiService implements ExchangeService {
      * Returns a map of normalized symbol -> 24h priceChangePercent for all BN futures.
      */
     public Map<String, Double> allPriceChangePct() {
+        log.info("allPriceChangePct");
         String url = baseUrl + priceChangePctUrl;
         Request request = new Request.Builder().url(url).build();
         Map<String, Double> result = new HashMap<>();
@@ -222,6 +230,7 @@ public class BnApiService implements ExchangeService {
     }
 
     public List<Kline> getKlines(String symbol, String interval, int limit, Long startTime) {
+        log.info("getKlines symbol={} interval={} limit={} startTime={}", symbol, interval, limit, startTime);
         HttpUrl.Builder builder = HttpUrl.parse(baseUrl + klinesUrl).newBuilder();
         builder.addQueryParameter("symbol", symbol);
         builder.addQueryParameter("interval", interval);
@@ -266,6 +275,7 @@ public class BnApiService implements ExchangeService {
     private static final String positionUrl = "/fapi/v2/positionRisk";
 
     public List<JSONObject> position() {
+        log.info("position");
         String url = baseUrl + positionUrl;
         long timestamp = System.currentTimeMillis();
         String query = "timestamp=" + timestamp;
@@ -296,13 +306,14 @@ public class BnApiService implements ExchangeService {
             return result;
         } catch (Exception e) {
             log.error("binance position error", e);
-            return new ArrayList<>();
+            throw new RuntimeException("binance position query failed", e);
         }
     }
 
     private static final String setLeverUrl = "/fapi/v1/leverage";
 
     public void setLever(String symbol, Integer lever) {
+        log.info("setLever symbol={} lever={}", symbol, lever);
         Map<String, String> params = new HashMap<>();
         params.put("symbol", symbol);
         params.put("leverage", String.valueOf(lever));
@@ -344,6 +355,7 @@ public class BnApiService implements ExchangeService {
 
     @Override
     public Double calQuantity(String symbol, Double margin, Integer lever, double price, double priceDiff) {
+        log.info("calQuantity symbol={} margin={} lever={} price={} priceDiff={}", symbol, margin, lever, price, priceDiff);
         double quantity = (margin * lever) / price * priceDiff;
         TickerLimit tickerLimit = StaticConstant.bnSymbolFilters.get(symbol);
         if (tickerLimit == null) {
@@ -363,6 +375,7 @@ public class BnApiService implements ExchangeService {
     private static final String placeOrderUrl = "/fapi/v1/order";
 
     public void placeOrder(String symbol, BuySellEnum buySellEnum, PositionSideEnum positionSideEnum, TradeTypeEnum tradeTypeEnum, double quantity, double price) {
+        log.info("placeOrder symbol={} side={} positionSide={} type={} quantity={} price={}", symbol, buySellEnum, positionSideEnum, tradeTypeEnum, quantity, price);
         Map<String, String> orderParams = new HashMap<>();
         orderParams.put("symbol", symbol);
         orderParams.put("side", buySellEnum.getBnCode());               // buy/sell
@@ -372,7 +385,11 @@ public class BnApiService implements ExchangeService {
 
         if (tradeTypeEnum == TradeTypeEnum.LIMIT) {
             orderParams.put("timeInForce", "GTC");
-            orderParams.put("price", String.valueOf(price));
+            TickerLimit filter = StaticConstant.bnSymbolFilters.get(symbol);
+            double normalizedPrice = (filter != null && filter.getTickSize() > 0)
+                    ? CommonUtil.normalizeQuantity(price, filter.getTickSize())
+                    : price;
+            orderParams.put("price", new java.math.BigDecimal(Double.toString(normalizedPrice)).stripTrailingZeros().toPlainString());
         }
 
         // 1. 构造查询字符串
@@ -412,6 +429,7 @@ public class BnApiService implements ExchangeService {
 
     private static final String billUrl = "/fapi/v1/income";
     public List<Bill> bill(Map<String, Bill> symbol2Bill, String pageParam) {
+        log.info("bill pageParam={}", pageParam);
         String url = baseUrl + billUrl;
         long timestamp = System.currentTimeMillis();
         Long todayBeginTime = CommonUtil.getWeedBeginTime();

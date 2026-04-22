@@ -37,7 +37,7 @@ public class TriExchangeFundingMonitor {
     @Resource
     private OkxApiService okxApiService;
 
-    @Scheduled(fixedRate = POLLING_INTERVAL_MINUTES * 60 * 1000, initialDelay = 3 * 1000)
+//    @Scheduled(fixedRate = POLLING_INTERVAL_MINUTES * 60 * 1000, initialDelay = 3 * 1000)
     public void run() {
         if (!StaticConstant.initFlag) {
             log.info("⏳ 数据未初始化，跳过本轮资金费率监控");

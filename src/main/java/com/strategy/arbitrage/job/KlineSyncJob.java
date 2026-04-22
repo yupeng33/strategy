@@ -35,17 +35,17 @@ public class KlineSyncJob {
 
     @PostConstruct
     public void startBackfill() {
-        List<String> symbols = parseSymbols();
-        for (String symbol : symbols) {
-            backfilling.add(symbol);
-            Thread t = new Thread(() -> backfill(symbol), "kline-backfill-" + symbol);
-            t.setDaemon(true);
-            t.start();
-        }
+//        List<String> symbols = parseSymbols();
+//        for (String symbol : symbols) {
+//            backfilling.add(symbol);
+//            Thread t = new Thread(() -> backfill(symbol), "kline-backfill-" + symbol);
+//            t.setDaemon(true);
+//            t.start();
+//        }
     }
 
     /** Incremental: runs every 60s, skips symbols still being backfilled. */
-    @Scheduled(fixedRate = 60_000, initialDelay = 10_000)
+//    @Scheduled(fixedRate = 60_000, initialDelay = 10_000)
     public void syncIncremental() {
         for (String symbol : parseSymbols()) {
             if (backfilling.contains(symbol)) {

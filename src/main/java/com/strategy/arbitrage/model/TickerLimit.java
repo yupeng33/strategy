@@ -12,4 +12,5 @@ public class TickerLimit {
     private double minQty;
     private double maxQty;
     private double stepSize;
+    private double tickSize;
 }

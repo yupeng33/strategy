@@ -38,7 +38,7 @@ public class PriceMonitor {
 
     }
 
-    @Scheduled(fixedRate = 60 * 1000, initialDelay = 4 * 1000)
+//    @Scheduled(fixedRate = 60 * 1000, initialDelay = 4 * 1000)
     private void refreshSymbols() {
         log.info("🔄 正在监听币安涨跌幅");
         List<String> allSymbols = StaticConstant.bnSymbolFilters.values().stream().map(TickerLimit::getSymbol).toList();
