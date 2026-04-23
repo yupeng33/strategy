@@ -40,6 +40,9 @@ public class PositionCache {
     /** 机器人累计加仓次数 */
     private int addCount;
 
+    /** 最近一次从交易所同步的未实现盈亏（USDT） */
+    private double unrealizedProfit;
+
     /** 对应数据库 halfauto_position.id，用于关联加仓记录 */
     private Long positionId;
 }

@@ -9,6 +9,12 @@
         VALUES (#{symbol}, #{positionSide}, #{entryPrice}, #{initialMargin}, #{leverage}, #{exchange})
     </insert>
 
+    <select id="findAllOpen" resultType="com.strategy.halfauto.model.HalfAutoPosition">
+        SELECT id, symbol, position_side, entry_price, initial_margin, leverage, exchange, created_at, closed_at
+        FROM halfauto_position
+        WHERE closed_at IS NULL
+    </select>
+
     <select id="findOpen" resultType="com.strategy.halfauto.model.HalfAutoPosition">
         SELECT id, symbol, position_side, entry_price, initial_margin, leverage, exchange, created_at, closed_at
         FROM halfauto_position

@@ -18,6 +18,7 @@ import org.json.JSONObject;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.util.HashSet;
@@ -40,6 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class HalfAutoJob {
 
     private static final double ADD_TRIGGER_PCT = 0.10;
+    private static final int    MAX_ADD_COUNT   = 4;
 
     /** key = "BTCUSDT_LONG" / "BTCUSDT_SHORT" */
     private final Map<String, PositionCache> cacheMap = new ConcurrentHashMap<>();
@@ -56,6 +58,33 @@ public class HalfAutoJob {
     @Resource
     private HalfAutoAddRecordMapper addRecordMapper;
 
+    // ── 启动清理 ──────────────────────────────────────────────────────────────
+
+    @PostConstruct
+    public void cleanStalePositions() {
+        try {
+            List<JSONObject> liveList = bnApiService.position();
+            Set<String> liveKeys = new HashSet<>();
+            for (JSONObject raw : liveList) {
+                String symbol = raw.getString("symbol");
+                PositionSideEnum side = PositionSideEnum.getByCode(ExchangeEnum.BINANCE, raw.getString("positionSide"));
+                liveKeys.add(cacheKey(symbol, side));
+            }
+
+            List<HalfAutoPosition> dbPositions = positionMapper.findAllOpen();
+            for (HalfAutoPosition pos : dbPositions) {
+                String key = pos.getSymbol() + "_" + pos.getPositionSide();
+                if (!liveKeys.contains(key)) {
+                    addRecordMapper.deleteByPositionId(pos.getId());
+                    positionMapper.delete(pos.getId());
+                    log.info("启动清理: 删除已不存在的仓位记录 {} {} db_id={}", pos.getSymbol(), pos.getPositionSide(), pos.getId());
+                }
+            }
+        } catch (Exception e) {
+            log.error("cleanStalePositions error", e);
+        }
+    }
+
     // ── 主任务 ────────────────────────────────────────────────────────────────
 
     @Scheduled(fixedDelay = 10_000)
@@ -65,6 +94,7 @@ public class HalfAutoJob {
         try {
             syncPositions();
             cacheMap.values().forEach(this::checkAndAdd);
+            System.out.println();
         } catch (Exception e) {
             log.error("HalfAutoJob run error", e);
         }
@@ -89,6 +119,7 @@ public class HalfAutoJob {
             if (cacheMap.containsKey(key)) {
                 PositionCache cache           = cacheMap.get(key);
                 double        unrealizedProfit = Double.parseDouble(raw.getString("unRealizedProfit"));
+                cache.setUnrealizedProfit(unrealizedProfit);
                 // 总投入 = initialMargin * 2^addCount（初始1份 + 加仓累计）
                 double        totalMargin      = cache.getInitialMargin() * Math.pow(2, cache.getAddCount());
                 if (unrealizedProfit >= totalMargin * 10) {
@@ -140,6 +171,7 @@ public class HalfAutoJob {
                 cache.setInitialMargin(dbPos.getInitialMargin());
                 cache.setLeverage(dbPos.getLeverage());
                 cache.setPositionId(dbPos.getId());
+                cache.setUnrealizedProfit(Double.parseDouble(raw.getString("unRealizedProfit")));
 
                 HalfAutoAddRecord latestAdd = addRecordMapper.findLatest(dbPos.getId());
                 if (latestAdd != null) {
@@ -183,31 +215,38 @@ public class HalfAutoJob {
             List<Price> prices = bnApiService.price(cache.getSymbol());
             if (prices.isEmpty()) return;
 
-            double  currentPrice = prices.get(0).getPrice();
-            double  entryPrice   = cache.getEntryPrice();
-            // 第 N 次加仓触发阈值：入场价的 N*10%（10%、20%、30%…）
-            int     nextCount    = cache.getAddCount() + 1;
-            double  threshold    = ADD_TRIGGER_PCT * nextCount;
+            double  currentPrice  = prices.get(0).getPrice();
+            double  entryPrice    = cache.getEntryPrice();
+            double  lastAddPrice  = cache.getLastAddPrice();
+            // 多单：入场价下跌 N*10% 触发（10%、20%、30%…）
+            // 空单：上次加仓价上涨 10% 触发（每次以上次加仓价为基准）
+            int     nextCount     = cache.getAddCount() + 1;
             boolean shouldAdd;
 
             double nextTriggerPrice;
             if (cache.getPositionSide() == PositionSideEnum.LONG) {
-                nextTriggerPrice = entryPrice * (1 - threshold);
+                nextTriggerPrice = entryPrice * (1 - ADD_TRIGGER_PCT * nextCount);
                 shouldAdd = currentPrice <= nextTriggerPrice;
             } else {
-                nextTriggerPrice = entryPrice * (1 + threshold);
+                nextTriggerPrice = lastAddPrice * (1 + ADD_TRIGGER_PCT);
                 shouldAdd = currentPrice >= nextTriggerPrice;
             }
 
-            log.info("[{}{}] 是否补仓={} 当前价={} 补仓触发价={} 补仓保证金={}U",
+            // 盈利中不补仓，或已达最大加仓次数
+            if (cache.getUnrealizedProfit() > 0 || cache.getAddCount() >= MAX_ADD_COUNT) {
+                shouldAdd = false;
+            }
+
+            log.info("[{}{}] 是否补仓={} 当前价={} 补仓触发价={} 补仓保证金={}U 未实现盈亏={}U",
                     cache.getSymbol(), cache.getPositionSide(),
                     shouldAdd ? "是" : "否",
                     String.format("%.4f", currentPrice),
                     String.format("%.4f", nextTriggerPrice),
-                    String.format("%.2f", cache.getNextAddMargin()));
+                    String.format("%.2f", cache.getNextAddMargin()),
+                    String.format("%.2f", cache.getUnrealizedProfit()));
 
             if (shouldAdd) {
-                doAdd(cache, currentPrice);
+                doAdd(cache, currentPrice, nextTriggerPrice);
             }
         } catch (Exception e) {
             log.error("checkAndAdd error: {} {}", cache.getSymbol(), cache.getPositionSide(), e);
@@ -216,16 +255,22 @@ public class HalfAutoJob {
 
     // ── 执行加仓 ──────────────────────────────────────────────────────────────
 
-    private void doAdd(PositionCache cache, double currentPrice) {
+    private void doAdd(PositionCache cache, double currentPrice, double nextTriggerPrice) {
         String           symbol       = cache.getSymbol();
         double           margin       = cache.getNextAddMargin();
         int              leverage     = cache.getLeverage();
         PositionSideEnum side         = cache.getPositionSide();
         double           lastAddPrice = cache.getLastAddPrice();
 
-        BuySellEnum buySell    = (side == PositionSideEnum.LONG) ? BuySellEnum.BUY : BuySellEnum.SELL;
-        // 限价：做多买入价低1%，做空卖出价高1%
-        double      limitPrice = (side == PositionSideEnum.LONG) ? currentPrice * 0.095 : currentPrice * 1.005;
+        BuySellEnum buySell = (side == PositionSideEnum.LONG) ? BuySellEnum.BUY : BuySellEnum.SELL;
+        // 若当前价格已超过触发价（跌破/涨过），按当前价格挂限价；否则按触发价挂单
+        double limitBase;
+        if (side == PositionSideEnum.LONG) {
+            limitBase = Math.min(currentPrice, nextTriggerPrice);
+        } else {
+            limitBase = Math.max(currentPrice, nextTriggerPrice);
+        }
+        double limitPrice = (side == PositionSideEnum.LONG) ? limitBase * 0.995 : limitBase * 1.005;
         double      quantity   = bnApiService.calQuantity(symbol, margin, leverage, limitPrice, 1.0);
 
         // Telegram 通知
