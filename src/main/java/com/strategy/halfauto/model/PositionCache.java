@@ -43,6 +43,9 @@ public class PositionCache {
     /** 最近一次从交易所同步的未实现盈亏（USDT） */
     private double unrealizedProfit;
 
+    /** 止盈目标：(开仓保证金 + 加仓保证金之和) × 10 */
+    private double takeProfitTarget;
+
     /** 对应数据库 halfauto_position.id，用于关联加仓记录 */
     private Long positionId;
 }

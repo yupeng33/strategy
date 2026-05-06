@@ -115,21 +115,23 @@ public class HalfAutoJob {
             String           key    = cacheKey(symbol, side);
             activeKeys.add(key);
 
-            // 已缓存的仓位：检查浮动收益是否超过总投入保证金 10 倍
+            // 已缓存的仓位：从DB读取止盈目标，检查是否触发止盈
             if (cacheMap.containsKey(key)) {
-                PositionCache cache           = cacheMap.get(key);
-                double        unrealizedProfit = Double.parseDouble(raw.getString("unRealizedProfit"));
+                PositionCache    cache            = cacheMap.get(key);
+                double           unrealizedProfit = Double.parseDouble(raw.getString("unRealizedProfit"));
                 cache.setUnrealizedProfit(unrealizedProfit);
-                // 总投入 = initialMargin * 2^addCount（初始1份 + 加仓累计）
-                double        totalMargin      = cache.getInitialMargin() * Math.pow(2, cache.getAddCount());
-                if (unrealizedProfit >= totalMargin * 10) {
+                // 每次从DB读取，以便手动修改DB提前止盈
+                HalfAutoPosition dbPos            = positionMapper.findOpen(symbol, side.name());
+                double           takeProfitTarget = (dbPos != null) ? dbPos.getTakeProfitTarget() : cache.getTakeProfitTarget();
+                cache.setTakeProfitTarget(takeProfitTarget);
+                if (takeProfitTarget > 0 && unrealizedProfit >= takeProfitTarget) {
                     double      posAmt    = Math.abs(Double.parseDouble(raw.getString("positionAmt")));
                     BuySellEnum closeSide = (side == PositionSideEnum.LONG) ? BuySellEnum.SELL : BuySellEnum.BUY;
-                    log.info("收益触发自动平仓: {} {} 浮盈={}U 总投入={}U", symbol, side,
-                            String.format("%.2f", unrealizedProfit), String.format("%.2f", totalMargin));
+                    log.info("收益触发自动平仓: {} {} 浮盈={}U 止盈目标={}U", symbol, side,
+                            String.format("%.2f", unrealizedProfit), String.format("%.2f", takeProfitTarget));
                     telegramNotifier.send(String.format(
-                            "💰 <b>自动平仓</b>\n币种: %s\n方向: %s\n浮动收益: %.2fU\n总投入: %.2fU（%.1f 倍）",
-                            symbol, side, unrealizedProfit, totalMargin, unrealizedProfit / totalMargin));
+                            "💰 <b>自动平仓</b>\n币种: %s\n方向: %s\n浮动收益: %.2fU\n止盈目标: %.2fU",
+                            symbol, side, unrealizedProfit, takeProfitTarget));
                     bnApiService.placeOrder(symbol, closeSide, side, TradeTypeEnum.MARKET, posAmt, 0);
                 }
                 continue;
@@ -151,6 +153,7 @@ public class HalfAutoJob {
                     dbPos.setPositionSide(side.name());
                     dbPos.setEntryPrice(entryPrice);
                     dbPos.setInitialMargin(margin);
+                    dbPos.setTakeProfitTarget(margin * 10);
                     dbPos.setLeverage(leverage);
                     dbPos.setExchange(ExchangeEnum.BINANCE.getAbbr());
                     positionMapper.insert(dbPos);
@@ -185,6 +188,9 @@ public class HalfAutoJob {
                     cache.setNextAddMargin(dbPos.getInitialMargin());
                     cache.setAddCount(0);
                 }
+                // 止盈目标 = 总投入保证金 × 10，totalMargin = initialMargin * 2^addCount
+                double totalMargin = dbPos.getInitialMargin() * Math.pow(2, cache.getAddCount());
+                cache.setTakeProfitTarget(totalMargin * 10);
                 cacheMap.put(key, cache);
             }
         }
@@ -306,6 +312,10 @@ public class HalfAutoJob {
         cache.setLastAddPrice(currentPrice);
         cache.setNextAddMargin(margin * 2);
         cache.setAddCount(cache.getAddCount() + 1);
+        double newTotalMargin    = cache.getInitialMargin() * Math.pow(2, cache.getAddCount());
+        double newTakeProfitTarget = newTotalMargin * 10;
+        cache.setTakeProfitTarget(newTakeProfitTarget);
+        positionMapper.updateTakeProfitTarget(cache.getPositionId(), newTakeProfitTarget);
 
         log.info("加仓完成: {} {} 价格={} 金额={}U 数量={} 第{}次 db_id={}",
                 symbol, side, currentPrice, margin, quantity, cache.getAddCount(), record.getId());

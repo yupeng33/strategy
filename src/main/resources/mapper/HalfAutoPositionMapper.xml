@@ -5,18 +5,22 @@
 <mapper namespace="com.strategy.halfauto.mapper.HalfAutoPositionMapper">
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO halfauto_position (symbol, position_side, entry_price, initial_margin, leverage, exchange)
-        VALUES (#{symbol}, #{positionSide}, #{entryPrice}, #{initialMargin}, #{leverage}, #{exchange})
+        INSERT INTO halfauto_position (symbol, position_side, entry_price, initial_margin, take_profit_target, leverage, exchange)
+        VALUES (#{symbol}, #{positionSide}, #{entryPrice}, #{initialMargin}, #{takeProfitTarget}, #{leverage}, #{exchange})
     </insert>
 
+    <update id="updateTakeProfitTarget">
+        UPDATE halfauto_position SET take_profit_target = #{takeProfitTarget} WHERE id = #{id}
+    </update>
+
     <select id="findAllOpen" resultType="com.strategy.halfauto.model.HalfAutoPosition">
-        SELECT id, symbol, position_side, entry_price, initial_margin, leverage, exchange, created_at, closed_at
+        SELECT id, symbol, position_side, entry_price, initial_margin, take_profit_target, leverage, exchange, created_at, closed_at
         FROM halfauto_position
         WHERE closed_at IS NULL
     </select>
 
     <select id="findOpen" resultType="com.strategy.halfauto.model.HalfAutoPosition">
-        SELECT id, symbol, position_side, entry_price, initial_margin, leverage, exchange, created_at, closed_at
+        SELECT id, symbol, position_side, entry_price, initial_margin, take_profit_target, leverage, exchange, created_at, closed_at
         FROM halfauto_position
         WHERE symbol = #{symbol} AND position_side = #{positionSide} AND closed_at IS NULL
         LIMIT 1

@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS halfauto_position (
     leverage      INT           NOT NULL COMMENT '杠杆倍数',
     exchange      VARCHAR(10)   NOT NULL COMMENT '交易所',
     created_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '首次检测到仓位的时间',
+    take_profit_target DECIMAL(20,4) NOT NULL DEFAULT 0 COMMENT '止盈目标(U)',
     closed_at     TIMESTAMP     NULL     DEFAULT NULL COMMENT '仓位关闭时间',
     PRIMARY KEY (id),
     INDEX idx_symbol_side (symbol, position_side)

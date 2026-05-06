@@ -17,6 +17,9 @@ public interface HalfAutoPositionMapper {
     /** 查询所有未关闭的仓位记录 */
     List<HalfAutoPosition> findAllOpen();
 
+    /** 更新止盈目标 */
+    void updateTakeProfitTarget(@Param("id") Long id, @Param("takeProfitTarget") double takeProfitTarget);
+
     /** 仓位关闭时设置 closed_at */
     void close(@Param("id") Long id);
 

@@ -11,6 +11,7 @@ public class HalfAutoPosition {
     private String        positionSide;   // LONG / SHORT
     private double        entryPrice;
     private double        initialMargin;
+    private double        takeProfitTarget;
     private int           leverage;
     private String        exchange;
     private LocalDateTime createdAt;
