@@ -16,7 +16,7 @@ public class FibonacciMartingaleStrategy extends AbstractBacktest {
     }
 
     @Override
-    protected double initialAmount() {
+    protected double initialAmount(BacktestContext ctx) {
         return 10; // fib(0) × 10
     }
 

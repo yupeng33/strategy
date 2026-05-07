@@ -28,8 +28,13 @@ public abstract class AbstractBacktest {
 
     // ── Hooks subclasses must implement ──────────────────────────────────────
 
+    /** Initial balance for the backtest. Default is 1000. */
+    protected double getInitialBalance() {
+        return 1000.0;
+    }
+
     /** Initial margin for the very first position of each round. */
-    protected abstract double initialAmount();
+    protected abstract double initialAmount(BacktestContext ctx);
 
     /**
      * Given the current state, return the next position amount when adding.
@@ -72,16 +77,21 @@ public abstract class AbstractBacktest {
 
     private void runSimulation(String symbol, BarSeries series) {
         int barCount = series.getBarCount();
-        BacktestContext ctx = new BacktestContext(1000);
+        BacktestContext ctx = new BacktestContext(getInitialBalance());
 
         double price            = series.getBar(0).getClosePrice().doubleValue();
         double peakPrice        = price;
-        double amount           = initialAmount();
+        double amount           = initialAmount(ctx);
         int    round            = 1;
         int    maxPositionCount = 0;
         int    maxPositionBarIndex = 0;
+        int    takeProfitCount  = 0;
+        int    stopLossCount    = 0;
 
-        System.out.printf("=== 策略启动 (%s, %d 根K线) ===%n%n", series.getName(), barCount);
+        System.out.printf("=== 策略启动 (%s, %d 根K线) ===%n", series.getName(), barCount);
+        System.out.printf("回测时间范围: %s 至 %s%n%n",
+                fmt(series.getBar(0).getEndTime()),
+                fmt(series.getBar(barCount - 1).getEndTime()));
 
         // Bar 0: open initial position
         double drawdown0 = 0;
@@ -96,7 +106,7 @@ public abstract class AbstractBacktest {
             // ── Reopen after close ────────────────────────────────────────
             if (ctx.positions.isEmpty()) {
                 round++;
-                amount   = initialAmount();
+                amount   = initialAmount(ctx);
                 peakPrice = price;
                 ctx.openPosition(price, amount, getLeverage(ctx, 0));
                 System.out.printf("[第%d轮] Bar%-3d [%s] [重新开仓] 价格=%.4f  权益=%.2f  仓位数=%d  总额=%.2f%n",
@@ -145,6 +155,7 @@ public abstract class AbstractBacktest {
             if (shouldStopLoss(ctx, pnl, equity)) {
                 logDetailed(round, i, series.getBar(i).getEndTime(), price, pnl, equity, ctx, avg, dir, chg);
                 System.out.printf("⚠️  Bar%d 触发总止损，平仓%n%n", i);
+                stopLossCount++;
                 ctx.closeAll(price);
                 continue;
             }
@@ -154,6 +165,7 @@ public abstract class AbstractBacktest {
                 System.out.printf("[第%d轮] Bar%-3d [%s] 达到止盈目标 价格=%.4f  PnL=%.2f  权益=%.2f  仓位数=%d  总额=%.2f  均价=%.4f%n%n",
                         round, i, fmt(series.getBar(i).getEndTime()), price, pnl,
                         equity, ctx.positions.size(), ctx.totalNotional(), avg);
+                takeProfitCount++;
                 ctx.closeAll(price);
                 continue;
             }
@@ -161,9 +173,26 @@ public abstract class AbstractBacktest {
             peakPrice = price;
         }
 
+        // ── Force close at last bar ───────────────────────────────────────────
+        if (!ctx.positions.isEmpty()) {
+            double finalPrice = series.getBar(barCount - 1).getClosePrice().doubleValue();
+            double finalPnl = ctx.calculatePnL(finalPrice);
+            double finalEquity = ctx.balance + finalPnl;
+            System.out.printf("[第%d轮] Bar%-3d [%s] [回测结束强制平仓] 价格=%.4f  PnL=%.2f  权益=%.2f  仓位数=%d  总额=%.2f  均价=%.4f%n%n",
+                    round, barCount - 1, fmt(series.getBar(barCount - 1).getEndTime()),
+                    finalPrice, finalPnl, finalEquity, ctx.positions.size(),
+                    ctx.totalNotional(), ctx.calculateAveragePrice());
+            ctx.closeAll(finalPrice);
+        }
+
         System.out.println("=== 策略结束 ===");
-        System.out.printf("最终余额: %.2f  (初始 1000, 盈亏 %.2f)%n",
-                ctx.balance, ctx.balance - 1000);
+        System.out.printf("最终余额: %.2f  (初始 %.2f, 盈亏 %.2f)%n",
+                ctx.balance, ctx.initialBalance, ctx.balance - ctx.initialBalance);
+        System.out.printf("止盈次数: %d%n", takeProfitCount);
+        System.out.printf("止损次数: %d%n", stopLossCount);
+        System.out.printf("总交易次数: %d  (胜率: %.2f%%)%n",
+                takeProfitCount + stopLossCount,
+                takeProfitCount + stopLossCount > 0 ? (takeProfitCount * 100.0 / (takeProfitCount + stopLossCount)) : 0);
         System.out.printf("最大仓位数: %d  (Bar%d [%s])%n",
                 maxPositionCount, maxPositionBarIndex,
                 fmt(series.getBar(maxPositionBarIndex).getEndTime()));

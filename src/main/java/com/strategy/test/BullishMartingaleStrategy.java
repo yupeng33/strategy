@@ -27,7 +27,7 @@ public class BullishMartingaleStrategy extends AbstractBacktest {
     }
 
     @Override
-    protected double initialAmount() {
+    protected double initialAmount(BacktestContext ctx) {
         return 1;
     }
 

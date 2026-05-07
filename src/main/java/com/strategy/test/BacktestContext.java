@@ -20,12 +20,14 @@ public class BacktestContext {
     }
 
     public double             balance;
+    public final double         initialBalance;  // 初始金额
     public final List<Position> positions = new ArrayList<>();
     public final double         mmr;      // maintenance margin rate
     public final double         feeRate;
 
     public BacktestContext(double initialBalance) {
         this.balance = initialBalance;
+        this.initialBalance = initialBalance;
         this.mmr     = 0.005;
         this.feeRate = 0.0004;
     }

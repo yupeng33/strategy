@@ -17,7 +17,7 @@ public class MartingaleStrategy extends AbstractBacktest {
     }
 
     @Override
-    protected double initialAmount() {
+    protected double initialAmount(BacktestContext ctx) {
         return 10;
     }
 
