@@ -47,6 +47,22 @@ public class BacktestContext {
         positions.clear();
     }
 
+    public void closeLastPosition(double price) {
+        if (positions.isEmpty()) return;
+        Position lastPos = positions.get(positions.size() - 1);
+        double pnl = (price - lastPos.entryPrice) / lastPos.entryPrice * lastPos.notional;
+        balance += pnl - lastPos.notional * feeRate;
+        positions.remove(positions.size() - 1);
+    }
+
+    public void closePosition(int index, double price) {
+        if (index < 0 || index >= positions.size()) return;
+        Position pos = positions.get(index);
+        double pnl = (price - pos.entryPrice) / pos.entryPrice * pos.notional;
+        balance += pnl - pos.notional * feeRate;
+        positions.remove(index);
+    }
+
     // ── Calculations ──────────────────────────────────────────────────────────
 
     public double calculatePnL(double price) {
@@ -80,5 +96,17 @@ public class BacktestContext {
 
     public double lastEntryPrice() {
         return positions.get(positions.size() - 1).entryPrice;
+    }
+
+    // ── Formatting helpers ────────────────────────────────────────────────────
+
+    /** 格式化金额，保留2位小数 */
+    public static String formatAmount(double amount) {
+        return String.format("%.2f", amount);
+    }
+
+    /** 格式化价格，保留原有精度（最多4位小数） */
+    public static String formatPrice(double price) {
+        return String.format("%.4f", price);
     }
 }

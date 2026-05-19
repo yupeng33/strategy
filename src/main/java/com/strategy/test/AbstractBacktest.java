@@ -57,6 +57,11 @@ public abstract class AbstractBacktest {
     /** Return true to close all positions as a stop-loss. */
     protected abstract boolean shouldStopLoss(BacktestContext ctx, double pnl, double equity);
 
+    /** Return the index of position to close (for grid trading), or -1 if none. Default: -1. */
+    protected int getPositionToClose(BacktestContext ctx, double price) {
+        return -1;
+    }
+
     /**
      * Called at the start of each bar before any position logic.
      * Subclasses can override to inspect raw bar data (open, high, low, close).
@@ -157,6 +162,16 @@ public abstract class AbstractBacktest {
                 System.out.printf("⚠️  Bar%d 触发总止损，平仓%n%n", i);
                 stopLossCount++;
                 ctx.closeAll(price);
+                continue;
+            }
+
+            // ── Close position (Grid trading) ───────────────────────
+            int positionToClose = getPositionToClose(ctx, price);
+            if (positionToClose >= 0) {
+                System.out.printf("[第%d轮] Bar%-3d [%s] [网格平第%d单] 价格=%.4f  权益=%.2f  仓位数=%d→%d%n",
+                        round, i, fmt(series.getBar(i).getEndTime()), positionToClose + 1, price,
+                        equity, ctx.positions.size(), ctx.positions.size() - 1);
+                ctx.closePosition(positionToClose, price);
                 continue;
             }
 

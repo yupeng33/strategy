@@ -55,4 +55,4 @@ switch:
   top-fund-rate-show: false
 
 kline:
-  watch-symbols: BTCUSDT,SIRENUSDT,ETHUSDT
+  watch-symbols: BTCUSDT,SIRENUSDT,ETHUSDT,SOLUSDT
