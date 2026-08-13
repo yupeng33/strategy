@@ -2,25 +2,16 @@ package com.strategy.arbitrage.job;
 
 import com.strategy.arbitrage.common.constant.StaticConstant;
 import com.strategy.arbitrage.model.FundingRate;
-import com.strategy.arbitrage.model.Position;
 import com.strategy.arbitrage.model.Price;
 import com.strategy.arbitrage.model.TickerLimit;
 import com.strategy.arbitrage.service.BgApiService;
 import com.strategy.arbitrage.service.BnApiService;
 import com.strategy.arbitrage.service.OkxApiService;
-import com.strategy.arbitrage.util.TelegramNotifier;
 import lombok.extern.slf4j.Slf4j;
-import org.json.JSONObject;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Repository;
 
-import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 

@@ -3,15 +3,11 @@ package com.strategy.arbitrage.job;
 import com.strategy.arbitrage.common.constant.StaticConstant;
 import com.strategy.arbitrage.common.enums.ExchangeEnum;
 import com.strategy.arbitrage.model.FundingRate;
-import com.strategy.arbitrage.service.BgApiService;
-import com.strategy.arbitrage.service.BnApiService;
-import com.strategy.arbitrage.service.OkxApiService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Repository;
 
-import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -29,13 +25,6 @@ public class TriExchangeFundingMonitor {
 
     @Value("${switch.top-fund-rate-show: false}")
     private Boolean topFundRateShow;
-
-    @Resource
-    private BnApiService bnApiService;
-    @Resource
-    private BgApiService bgApiService;
-    @Resource
-    private OkxApiService okxApiService;
 
     @Scheduled(fixedRate = POLLING_INTERVAL_MINUTES * 60 * 1000, initialDelay = 3 * 1000)
     public void run() throws InterruptedException {
@@ -55,10 +44,10 @@ public class TriExchangeFundingMonitor {
             // 币安 vs Bitget
             compareAndAdd(diffs, "Binance", "Bitget", StaticConstant.binanceFunding, StaticConstant.bitgetFunding, StaticConstant.binancePrice, StaticConstant.bitgetPrice);
 
-            // 按利差排序，取 Top 20
+            // 按利差排序，取 Top N
             diffs.sort((a, b) -> Double.compare(b.diff, a.diff));
-            List<RateDiff> top20 = diffs.size() > TOP_N ? diffs.subList(0, TOP_N) : diffs;
-            printTop20(top20);
+            List<RateDiff> top = diffs.size() > TOP_N ? diffs.subList(0, TOP_N) : diffs;
+            printTop(top);
         }
 
         if (topFundRateShow) {
@@ -68,7 +57,6 @@ public class TriExchangeFundingMonitor {
         }
     }
 
-    // ================== 对比并添加 ==================
     private static void compareAndAdd(List<RateDiff> list,
                                      String exchangeA, String exchangeB,
                                      Map<String, FundingRate> fundingA, Map<String, FundingRate> fundingB,
@@ -80,7 +68,7 @@ public class TriExchangeFundingMonitor {
 
             FundingRate rateA = fundingA.get(symbolA);
             double diff = Math.abs(rateA.getRate() - rateB.getRate());
-            if (diff < 1e-8) continue; // 忽略极小差异
+            if (diff < 1e-8) continue;
 
             Double priceAA = priceA.get(symbolA);
             Double priceBB = priceB.get(symbolA);
@@ -97,7 +85,6 @@ public class TriExchangeFundingMonitor {
         }
     }
 
-    // ================== 获取公共显示名称 ==================
     private static String getCommonSymbol(String symbol, String exchange) {
         if (exchange.equals("OKX")) {
             return symbol.replace("-SWAP", "");
@@ -106,8 +93,7 @@ public class TriExchangeFundingMonitor {
         }
     }
 
-    // ================== 打印 Top 20 ==================
-    private static void printTop20(List<RateDiff> list) {
+    private static void printTop(List<RateDiff> list) {
         System.out.println("\n" + "=".repeat(140));
         System.out.printf("%-16s %-8s %-8s %-8s %-10s %-10s %-10s %-10s %-8s %-8s %-10s %-10s%n",
                 "代币", "交易所A", "交易所B", "A价格", "B价格", "价差(%)", "A费率(%)", "B费率(%)", "A间隔", "B间隔",  "利差(%)", "A-B方向");
@@ -144,7 +130,6 @@ public class TriExchangeFundingMonitor {
         filtered.forEach(System.out::println);
     }
 
-    // ================== 数据模型 ==================
     static class RateDiff {
         String symbol;
         String exchangeA, exchangeB;

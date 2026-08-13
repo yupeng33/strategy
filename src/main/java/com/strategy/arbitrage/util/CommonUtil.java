@@ -67,10 +67,6 @@ public class CommonUtil {
         return max;
     }
 
-    public static Long getTodayBeginTime() {
-        return LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
-    }
-
     public static Long getWeedBeginTime() {
         return LocalDate.now()
                 .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)) // 找到本周一
