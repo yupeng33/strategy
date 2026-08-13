@@ -4,7 +4,6 @@ import com.strategy.arbitrage.ApiSignature;
 import com.strategy.arbitrage.HttpUtil;
 import com.strategy.arbitrage.common.constant.StaticConstant;
 import com.strategy.arbitrage.common.enums.*;
-import com.strategy.arbitrage.model.Bill;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.model.Price;
 import com.strategy.arbitrage.model.TickerLimit;
@@ -377,76 +376,6 @@ public class OkxApiService implements ExchangeService {
         } catch (Exception e) {
             telegramNotifier.send(String.format("✅ okx 下单失败: %s %s", symbol, e.getMessage()));
             throw new RuntimeException("🚫 okx 下单失败 " + symbol);
-        }
-    }
-
-    private static final String billUrl = "/api/v5/account/bills";
-    private static final Integer limit = 100;
-    public List<Bill> bill(Map<String, Bill> symbol2Bill, String pageParam) {
-        String url = baseUrl + billUrl;
-        String timestamp = CommonUtil.getISOTimestamp();
-        String query = "limit=" + limit + "&instType=SWAP&begin=" + CommonUtil.getWeedBeginTime() + "&end=" + System.currentTimeMillis();
-        if (StringUtils.hasLength(pageParam)) {
-            query = query + "&after=" + pageParam;
-        }
-
-        String preSign = timestamp + "GET" + billUrl + "?" + query;
-        String signature = ApiSignature.hmacSha256(preSign, secretKey);
-
-        HttpUrl httpUrl = HttpUrl.parse(url + "?" + query).newBuilder().build();
-
-        Headers headers = Headers.of(
-                "OK-ACCESS-KEY", apiKey,
-                "OK-ACCESS-SIGN", signature,
-                "OK-ACCESS-TIMESTAMP", timestamp,
-                "OK-ACCESS-PASSPHRASE", passPhrase,
-                "Content-Type", "application/json"
-        );
-
-        Request request = new Request.Builder()
-                .url(httpUrl)
-                .headers(headers)
-                .build();
-
-        try (Response response = HttpUtil.client.newCall(request).execute()) {
-            String res = response.body().string();
-            JSONObject resJson = new JSONObject(res);
-            if ("0".equals(resJson.getString("code"))) {
-                JSONArray arr = resJson.getJSONArray("data");
-                if (arr.isEmpty()) {
-                    return new ArrayList<>(symbol2Bill.values());
-                }
-
-                for (int i = 0; i < arr.length(); i++) {
-                    JSONObject billJson = arr.getJSONObject(i);
-                    String symbol = CommonUtil.normalizeSymbol(billJson.getString("instId"), "okx");
-                    if (!StringUtils.hasLength(symbol)) {
-                        continue;
-                    }
-
-                    Bill bill = symbol2Bill.getOrDefault(symbol, new Bill());
-                    bill.setExchange(ExchangeEnum.OKX.getAbbr());
-                    bill.setSymbol(symbol);
-
-                    String businessType = billJson.getString("type");
-                    if (businessType.equalsIgnoreCase("8")) {
-                        bill.setFundRateFee(bill.getFundRateFee() + Double.parseDouble(billJson.getString("pnl")));
-                    } else {
-                        bill.setTradePnl(bill.getTradePnl() + Double.parseDouble(billJson.getString("pnl")));
-                        bill.setTradeFee(bill.getTradeFee() + Double.parseDouble(billJson.getString("fee")));
-                    }
-                    symbol2Bill.put(symbol, bill);
-                    pageParam = billJson.getString("billId");
-                }
-
-                if (arr.length() == limit) {
-                    this.bill(symbol2Bill, pageParam);
-                }
-            }
-            return new ArrayList<>(symbol2Bill.values());
-        } catch (Exception e) {
-            log.error("okx position error", e);
-            return new ArrayList<>();
         }
     }
 }

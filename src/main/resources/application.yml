@@ -25,9 +25,6 @@ telegram:
   botToken: 7960913304:AAFiw3cDQBQdxgrNAYqaF80TCXoWEPwJV7Y
   chatId: -4945032554
 
-alert:
-  coin: "ZORAUSDT,SOONUSDT,PARTIUSDT,"
-
 order-price-diff-per: 0.0005
 
 switch:

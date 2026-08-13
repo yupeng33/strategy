@@ -4,7 +4,6 @@ import com.strategy.arbitrage.ApiSignature;
 import com.strategy.arbitrage.HttpUtil;
 import com.strategy.arbitrage.common.constant.StaticConstant;
 import com.strategy.arbitrage.common.enums.*;
-import com.strategy.arbitrage.model.Bill;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.model.Price;
 import com.strategy.arbitrage.model.TickerLimit;
@@ -22,9 +21,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -318,77 +314,6 @@ public class BgApiService implements ExchangeService {
         } catch (Exception e) {
             telegramNotifier.send(String.format("✅ bg 下单失败: %s %s", symbol, e.getMessage()));
             throw new RuntimeException("🚫 bg 下单失败 " + symbol);
-        }
-    }
-
-    public static final String billUrl = "/api/v2/mix/account/bill";
-    private static final Integer limit = 100;
-    public List<Bill> bill(Map<String, Bill> symbol2Bill, String pageParam) {
-        String url = baseUrl + billUrl;
-        String query = "productType=USDT-FUTURES&limit=" + limit + "&startTime=" + CommonUtil.getWeedBeginTime();
-        if (StringUtils.hasLength(pageParam)) {
-            query = query + "&pageParam=" + pageParam;
-        }
-
-        long timestamp = System.currentTimeMillis();
-        String preSign = timestamp + "GET" + billUrl + "?" + query;
-        String signature = ApiSignature.hmacSha256(preSign, secretKey);
-
-        HttpUrl httpUrl = HttpUrl.parse(url + "?" + query).newBuilder().build();
-
-        Headers headers = Headers.of(
-                "ACCESS-KEY", apiKey,
-                "ACCESS-SIGN", signature,
-                "ACCESS-TIMESTAMP", String.valueOf(timestamp),
-                "ACCESS-PASSPHRASE", passPhrase,
-                "Content-Type", "application/json"
-        );
-
-        Request request = new Request.Builder()
-                .url(httpUrl)
-                .headers(headers)
-                .build();
-
-        try (Response response = HttpUtil.client.newCall(request).execute()) {
-            String res = response.body().string();
-            JSONObject resJson = new JSONObject(res);
-            if ("00000".equals(resJson.getString("code"))) {
-                JSONArray arr = resJson.getJSONObject("data").getJSONArray("bills");
-                if (arr.isEmpty()) {
-                    return new ArrayList<>(symbol2Bill.values());
-                }
-
-                for (int i = 0; i < arr.length(); i++) {
-                    JSONObject billJson = arr.getJSONObject(i);
-                    String symbol = billJson.getString("symbol");
-                    if (!StringUtils.hasLength(symbol)) {
-                        continue;
-                    }
-
-                    Bill bill = symbol2Bill.getOrDefault(symbol, new Bill());
-                    bill.setExchange(ExchangeEnum.BITGET.getAbbr());
-                    bill.setSymbol(symbol);
-
-                    String businessType = billJson.getString("businessType");
-                    if (businessType.equalsIgnoreCase("contract_settle_fee")) {
-                        bill.setFundRateFee(bill.getFundRateFee() + Double.parseDouble(billJson.getString("amount")));
-                    } else if (businessType.equalsIgnoreCase("open_long") || businessType.equalsIgnoreCase("open_short") ||
-                            businessType.equalsIgnoreCase("close_long") || businessType.equalsIgnoreCase("close_short")){
-                        bill.setTradeFee(bill.getTradeFee() + Double.parseDouble(billJson.getString("fee")));
-                        bill.setTradePnl(bill.getTradePnl() + Double.parseDouble(billJson.getString("amount")));
-                    }
-                    symbol2Bill.put(symbol, bill);
-                    pageParam = billJson.getString("billId");
-                }
-
-                if (arr.length() == limit) {
-                    this.bill(symbol2Bill, pageParam);
-                }
-            }
-            return new ArrayList<>(symbol2Bill.values());
-        } catch (Exception e) {
-            log.error("bitget bill error", e);
-            return new ArrayList<>();
         }
     }
 

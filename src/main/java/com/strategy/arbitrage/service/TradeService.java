@@ -1,7 +1,6 @@
 package com.strategy.arbitrage.service;
 
 import com.strategy.arbitrage.common.enums.*;
-import com.strategy.arbitrage.job.BillMonitor;
 import com.strategy.arbitrage.model.FundingRate;
 import com.strategy.arbitrage.model.Position;
 import com.strategy.arbitrage.model.Price;
@@ -39,8 +38,6 @@ public class TradeService {
 
     @Resource
     private ExchangeServiceFactory exchangeServiceFactory;
-    @Resource
-    private BillMonitor billMonitor;
 
     public void trade(TelegramOperateEnum telegramOperateEnum, String exchangeA, String exchangeB, String symbol, String margin, String lever) {
         switch (telegramOperateEnum) {
@@ -91,7 +88,6 @@ public class TradeService {
     private void doClose(String exchangeA, String exchangeB, String symbol) {
         executor.execute(() -> order(TelegramOperateEnum.CLOSE, null, exchangeA, symbol, null, null));
         executor.execute(() -> order(TelegramOperateEnum.CLOSE, null, exchangeB, symbol, null, null));
-        billMonitor.checkRisk(symbol);
     }
 
     public void order(TelegramOperateEnum telegramOperateEnum, String longShort, String exchange, String symbol, String margin, String lever) {

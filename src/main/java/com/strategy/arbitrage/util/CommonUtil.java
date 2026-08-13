@@ -4,9 +4,9 @@ import com.strategy.arbitrage.common.enums.ExchangeEnum;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.*;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.TemporalAdjusters;
 
 public class CommonUtil {
 
@@ -65,13 +65,5 @@ public class CommonUtil {
             max = Math.max(max, decimalPlaces);
         }
         return max;
-    }
-
-    public static Long getWeedBeginTime() {
-        return LocalDate.now()
-                .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)) // 找到本周一
-                .atStartOfDay(ZoneId.systemDefault())
-                .toInstant()
-                .toEpochMilli();
     }
 }
