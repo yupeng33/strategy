@@ -1,58 +1,18 @@
 server:
   port: 8443
 
-spring:
-  datasource:
-    url: jdbc:mysql://localhost:3306/bot?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
-    username: root
-    password: 123456
-    driver-class-name: com.mysql.cj.jdbc.Driver
-  sql:
-    init:
-      mode: always
-      schema-locations: classpath:schema.sql
-
-mybatis:
-  mapper-locations: classpath:mapper/*.xml
-  configuration:
-    map-underscore-to-camel-case: true
-
-# 币安API密钥（请使用测试网密钥！）
+# 币安 U 本位合约
 binance:
   api-key: kq87hNhMzps2BlVJoIJGrfQSKNirr6KviypMLgesctRKDuxZ1avKx18iA8MsOuTL
   secret-key: jUSZTT7kzVyqAmzBRptl79Jmz8mck18C61H83fsq3Bo0CsxgZHmQd2sim918WFaX
   base-url: https://fapi.binance.com
 
+# 止盈盈利 = 开仓保证金 × margin-ratio。0.10 表示保证金的 10%
+take-profit:
+  margin-ratio: 0.10
 
-bitget:
-  api-key: bg_5e15d05a7e79e3b19398baef93a5ec3c
-  secret-key: 15e39da020f6ff0327f457ec23a73628fc1d82a2d30212ca0d7b056e6fdebc38
-  pass-phrase: Yupeng33
-  base-url: https://api.bitget.com
-
-okx:
-  api-key: 53dde2c3-59ba-407b-bec0-1d4ff8e8b144
-  secret-key: 0C00E9C051B0FF50EBC6D643CBF8696B
-  pass-phrase: Yupeng258461.
-  base-url: https://www.okx.com
-
-
+# 电报通知。enabled 为 false 时不发送
 telegram:
+  enabled: false
   botToken: 7960913304:AAFiw3cDQBQdxgrNAYqaF80TCXoWEPwJV7Y
   chatId: -4945032554
-
-alert:
-  price-diff-per: 0.1
-  fundRate-diff-per: 0.01
-  margin-diff-per: 0.01
-  coin: "ZORAUSDT,SOONUSDT,PARTIUSDT,"
-
-
-order-price-diff-per: 0.0005
-
-switch:
-  diff-fund-rate-show: false
-  top-fund-rate-show: false
-
-kline:
-  watch-symbols: BTCUSDT,SIRENUSDT,ETHUSDT,SOLUSDT
