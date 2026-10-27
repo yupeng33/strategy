@@ -1,6 +1,17 @@
 server:
   port: 8443
 
+# 若浏览器能开币安、程序连不上 fapi，多半需开本地代理（端口按你的 Clash/V2Ray 改）
+http:
+  proxy:
+    enabled: false
+    host: 127.0.0.1
+    port: 7890
+  timeout:
+    connect-seconds: 30
+    read-seconds: 30
+    write-seconds: 30
+
 # 币安API密钥（请使用测试网密钥！）
 binance:
   api-key: kq87hNhMzps2BlVJoIJGrfQSKNirr6KviypMLgesctRKDuxZ1avKx18iA8MsOuTL
@@ -30,3 +41,4 @@ order-price-diff-per: 0.0005
 switch:
   diff-fund-rate-show: true
   top-fund-rate-show: false
+  bn-top-fund-rate-show: true

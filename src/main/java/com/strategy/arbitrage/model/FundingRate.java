@@ -21,6 +21,17 @@ public class FundingRate {
         return Math.abs(rate);
     }
 
+    /**
+     * 不同标的结算周期不同（1/2/4/8 小时），换算成每小时平均费率才可横向比较
+     */
+    public double getHourlyRate() {
+        return interval <= 0 ? rate : rate / interval;
+    }
+
+    public double getAbsHourlyRate() {
+        return Math.abs(getHourlyRate());
+    }
+
     @Override
     public String toString() {
         return String.format("%-8s %-13s %-12s %-8s %s",

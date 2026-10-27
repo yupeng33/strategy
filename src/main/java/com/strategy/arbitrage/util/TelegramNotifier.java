@@ -2,7 +2,6 @@ package com.strategy.arbitrage.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,7 +17,6 @@ public class TelegramNotifier {
     @Value("${telegram.chatId:-4945032554}")
     private String chatId;
 
-    private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
 
@@ -42,7 +40,8 @@ public class TelegramNotifier {
                     .post(body)
                     .build();
 
-            client.newCall(request).execute().close();
+            // Use shared client (respects http.proxy / NO_PROXY), not a raw OkHttpClient
+            com.strategy.arbitrage.HttpUtil.client.newCall(request).execute().close();
         } catch (Exception e) {
             e.printStackTrace();
         }

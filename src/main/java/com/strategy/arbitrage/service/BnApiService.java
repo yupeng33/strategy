@@ -186,7 +186,7 @@ public class BnApiService implements ExchangeService {
             }
             return result;
         } catch (Exception e) {
-            log.error("binance tickerLimit error", e);
+            log.error("binance tickerLimit error, url={}, msg={}", url, e.getMessage(), e);
             return new ArrayList<>();
         }
     }
