@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import okhttp3.MediaType;
 import okhttp3.Request;
 import okhttp3.RequestBody;
+import okhttp3.Response;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -46,9 +47,14 @@ public class TelegramNotifier {
                     MediaType.get("application/json")
             );
             Request request = new Request.Builder().url(url).post(body).build();
-            HttpUtil.client.newCall(request).execute().close();
+            try (Response response = HttpUtil.client.newCall(request).execute()) {
+                if (!response.isSuccessful()) {
+                    String responseBody = response.body() == null ? "" : response.body().string();
+                    log.error("电报发送失败 http {} {}", response.code(), responseBody);
+                }
+            }
         } catch (Exception e) {
-            log.error("Failed to send Telegram message", e);
+            log.error("电报发送失败", e);
         }
     }
 }
