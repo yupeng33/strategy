@@ -96,6 +96,27 @@ public class BnApiService {
         return tickBySymbol;
     }
 
+    public Map<String, BigDecimal> lastPrices() {
+        Request request = new Request.Builder().url(baseUrl + "/fapi/v1/ticker/price").get().build();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String body = response.body() == null ? "" : response.body().string();
+            if (!response.isSuccessful()) {
+                throw new RuntimeException("ticker price http " + response.code() + " " + body);
+            }
+            Map<String, BigDecimal> prices = new LinkedHashMap<>();
+            JSONArray arr = new JSONArray(body);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject item = arr.getJSONObject(i);
+                prices.put(item.getString("symbol"), new BigDecimal(item.getString("price")));
+            }
+            return prices;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public List<JSONObject> openOrders() {
         String body = signed("GET", "/fapi/v1/openOrders", Map.of());
         return parseArray(body);

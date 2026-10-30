@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 数量、开仓价或杠杆变化时，先撤掉对应止盈单，再按当前仓位重挂。
  * 仓位消失时撤掉本程序挂的止盈单。
  * 新开仓输出手续费；发现平仓时查询成交记录，输出手续费和盈利。
+ * 开仓限价单离现价超过设定比例时撤单。
  */
 @Slf4j
 @Component
@@ -32,6 +33,9 @@ public class TakeProfitJob {
 
     @Value("${take-profit.margin-ratio:0.10}")
     private String marginRatioText;
+
+    @Value("${open-order.max-price-diff:0.05}")
+    private String maxPriceDiffText;
 
     @Resource
     private BnApiService bnApiService;
@@ -80,6 +84,12 @@ public class TakeProfitJob {
             log.error("统计开平仓手续费失败", e);
         }
 
+        try {
+            cancelDistantOpenOrders(positions, openOrders);
+        } catch (Exception e) {
+            log.error("检查开仓挂单失败", e);
+        }
+
         Map<String, BigDecimal> ticks = bnApiService.priceTicks();
         if (ticks.isEmpty()) {
             log.warn("没有交易对价格精度，本轮跳过");
@@ -112,6 +122,96 @@ public class TakeProfitJob {
             cancelQuietly(order, "仓位已平，撤销止盈单 " + order.optString("symbol"));
         }
         placedState.keySet().retainAll(liveKeys);
+    }
+
+    private void cancelDistantOpenOrders(List<JSONObject> positions, List<JSONObject> openOrders) {
+        BigDecimal maxDiff;
+        try {
+            maxDiff = new BigDecimal(maxPriceDiffText);
+        } catch (NumberFormatException e) {
+            log.error("open-order.max-price-diff 无法解析: {}", maxPriceDiffText);
+            return;
+        }
+        if (maxDiff.signum() <= 0) {
+            return;
+        }
+
+        Map<String, BigDecimal> oneWayAmt = new LinkedHashMap<>();
+        for (JSONObject pos : positions) {
+            if ("BOTH".equals(pos.optString("positionSide", "BOTH"))) {
+                oneWayAmt.put(pos.getString("symbol"), new BigDecimal(pos.getString("positionAmt")));
+            }
+        }
+
+        List<JSONObject> stale = new ArrayList<>();
+        for (JSONObject order : openOrders) {
+            if (isOpeningLimit(order, oneWayAmt.getOrDefault(order.optString("symbol"), BigDecimal.ZERO))) {
+                stale.add(order);
+            }
+        }
+        if (stale.isEmpty()) {
+            return;
+        }
+
+        Map<String, BigDecimal> prices;
+        try {
+            prices = bnApiService.lastPrices();
+        } catch (Exception e) {
+            log.error("读取现价失败，本轮不撤开仓挂单", e);
+            return;
+        }
+
+        for (JSONObject order : stale) {
+            String symbol = order.optString("symbol");
+            BigDecimal current = prices.get(symbol);
+            BigDecimal orderPrice = new BigDecimal(order.optString("price", "0"));
+            if (!priceGapExceeds(current, orderPrice, maxDiff)) {
+                continue;
+            }
+            try {
+                bnApiService.cancelOrder(symbol, order.getLong("orderId"));
+                String message = String.format("开仓挂单偏离现价超过 %s%%，已撤销 %s %s 挂单价 %s 现价 %s",
+                        plain(maxDiff.multiply(new BigDecimal("100"))),
+                        symbol, order.optString("side"), plain(orderPrice), plain(current));
+                log.info(message);
+                telegramNotifier.send(message);
+            } catch (Exception e) {
+                log.error("撤销开仓挂单失败 {} {}", symbol, order.optLong("orderId"), e);
+            }
+        }
+    }
+
+    static boolean isOpeningLimit(JSONObject order, BigDecimal oneWayPositionAmt) {
+        if (order.optBoolean("reduceOnly") || order.optString("clientOrderId", "").startsWith(CLIENT_ID_PREFIX)) {
+            return false;
+        }
+        if (!"LIMIT".equals(order.optString("type"))) {
+            return false;
+        }
+        BigDecimal orderPrice = new BigDecimal(order.optString("price", "0"));
+        if (orderPrice.signum() <= 0) {
+            return false;
+        }
+        String side = order.optString("side");
+        String positionSide = order.optString("positionSide", "BOTH");
+        if ("LONG".equals(positionSide)) {
+            return "BUY".equals(side);
+        }
+        if ("SHORT".equals(positionSide)) {
+            return "SELL".equals(side);
+        }
+        BigDecimal amt = oneWayPositionAmt == null ? BigDecimal.ZERO : oneWayPositionAmt;
+        if ("BUY".equals(side)) {
+            return amt.signum() >= 0;
+        }
+        return "SELL".equals(side) && amt.signum() <= 0;
+    }
+
+    static boolean priceGapExceeds(BigDecimal current, BigDecimal orderPrice, BigDecimal ratio) {
+        if (current == null || orderPrice == null || current.signum() <= 0 || orderPrice.signum() <= 0 || ratio.signum() <= 0) {
+            return false;
+        }
+        return current.subtract(orderPrice).abs().compareTo(orderPrice.multiply(ratio)) > 0;
     }
 
     private void reportOpensAndCloses(List<JSONObject> positions) {
