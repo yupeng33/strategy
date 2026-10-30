@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 扫描币安 U 本位当前仓位，按保证金比例挂止盈限价单。
  * 数量、开仓价或杠杆变化时，先撤掉对应止盈单，再按当前仓位重挂。
  * 仓位消失时撤掉本程序挂的止盈单。
+ * 新开仓输出手续费；发现平仓时查询成交记录，输出手续费和盈利。
  */
 @Slf4j
 @Component
@@ -43,7 +44,12 @@ public class TakeProfitJob {
     /** 上次成功挂单时的仓位。数量、开仓价、杠杆任一变化都要重挂。 */
     private final Map<String, PositionState> placedState = new ConcurrentHashMap<>();
 
-    @Scheduled(fixedDelay = 10_000, initialDelay = 5_000)
+    /** 已见到的仓位，用来识别开仓和平仓。 */
+    private final Map<String, WatchedPosition> watchedPositions = new ConcurrentHashMap<>();
+
+    private boolean positionBaselineReady;
+
+    @Scheduled(fixedDelay = 3_000, initialDelay = 3_000)
     public void run() {
         BigDecimal marginRatio;
         try {
@@ -66,6 +72,12 @@ public class TakeProfitJob {
         } catch (Exception e) {
             log.error("读取仓位或挂单失败，本轮不改单", e);
             return;
+        }
+
+        try {
+            reportOpensAndCloses(positions);
+        } catch (Exception e) {
+            log.error("统计开平仓手续费失败", e);
         }
 
         Map<String, BigDecimal> ticks = bnApiService.priceTicks();
@@ -100,6 +112,100 @@ public class TakeProfitJob {
             cancelQuietly(order, "仓位已平，撤销止盈单 " + order.optString("symbol"));
         }
         placedState.keySet().retainAll(liveKeys);
+    }
+
+    private void reportOpensAndCloses(List<JSONObject> positions) {
+        Map<String, JSONObject> current = new LinkedHashMap<>();
+        for (JSONObject pos : positions) {
+            BigDecimal amt = new BigDecimal(pos.getString("positionAmt"));
+            if (amt.signum() == 0) {
+                continue;
+            }
+            String symbol = pos.getString("symbol");
+            String positionSide = pos.optString("positionSide", "BOTH");
+            boolean longPos = "LONG".equals(positionSide) || (!"SHORT".equals(positionSide) && amt.signum() > 0);
+            current.put(clientAlgoId(symbol, positionSide, longPos), pos);
+        }
+
+        if (!positionBaselineReady) {
+            long now = System.currentTimeMillis();
+            for (Map.Entry<String, JSONObject> entry : current.entrySet()) {
+                watchedPositions.put(entry.getKey(), watch(entry.getValue(), now, false));
+            }
+            positionBaselineReady = true;
+            return;
+        }
+
+        for (Map.Entry<String, JSONObject> entry : current.entrySet()) {
+            WatchedPosition existing = watchedPositions.get(entry.getKey());
+            if (existing == null) {
+                WatchedPosition opened = watch(entry.getValue(), System.currentTimeMillis(), true);
+                reportOpen(opened);
+                watchedPositions.put(entry.getKey(), opened);
+            } else {
+                existing.qty = new BigDecimal(entry.getValue().getString("positionAmt")).abs();
+            }
+        }
+
+        for (String key : new ArrayList<>(watchedPositions.keySet())) {
+            if (!current.containsKey(key)) {
+                reportClose(watchedPositions.remove(key));
+            }
+        }
+    }
+
+    private void reportOpen(WatchedPosition position) {
+        try {
+            long now = System.currentTimeMillis();
+            List<JSONObject> trades = bnApiService.userTrades(position.symbol, now - 120_000L, now);
+            List<JSONObject> opens = PositionTradeReport.newestFillsUntilQty(
+                    trades, true, position.longPos, position.positionSide, position.qty);
+            if (!opens.isEmpty()) {
+                position.openedAt = opens.stream().mapToLong(trade -> trade.optLong("time")).min().orElse(position.openedAt);
+            }
+            String fee = PositionTradeReport.commissionText(opens);
+            String message = String.format("开仓 %s %s 数量 %s 手续费 %s",
+                    position.symbol, position.longPos ? "多" : "空", plain(position.qty), fee);
+            log.info(message);
+            telegramNotifier.send(message);
+        } catch (Exception e) {
+            log.error("查询开仓手续费失败 {}", position.symbol, e);
+        }
+    }
+
+    private void reportClose(WatchedPosition position) {
+        try {
+            long now = System.currentTimeMillis();
+            long start = position.sawOpen
+                    ? position.openedAt
+                    : now - 7L * 24 * 60 * 60 * 1000L;
+            List<JSONObject> trades = bnApiService.userTrades(position.symbol, start, now);
+            List<JSONObject> round = position.sawOpen
+                    ? PositionTradeReport.heldRound(trades, position.positionSide, position.openedAt)
+                    : PositionTradeReport.closedRound(trades, position.longPos, position.positionSide, position.qty);
+            String fee = PositionTradeReport.commissionText(round);
+            String pnl = plain(PositionTradeReport.realizedPnl(round));
+            String message = String.format("关仓 %s %s 手续费 %s 盈利 %s USDT",
+                    position.symbol, position.longPos ? "多" : "空", fee, pnl);
+            log.info(message);
+            telegramNotifier.send(message);
+        } catch (Exception e) {
+            log.error("查询关仓成交失败 {}", position.symbol, e);
+        }
+    }
+
+    private static WatchedPosition watch(JSONObject pos, long now, boolean sawOpen) {
+        String positionSide = pos.optString("positionSide", "BOTH");
+        BigDecimal amt = new BigDecimal(pos.getString("positionAmt"));
+        boolean longPos = "LONG".equals(positionSide) || (!"SHORT".equals(positionSide) && amt.signum() > 0);
+        WatchedPosition watched = new WatchedPosition();
+        watched.symbol = pos.getString("symbol");
+        watched.positionSide = positionSide;
+        watched.longPos = longPos;
+        watched.qty = amt.abs();
+        watched.openedAt = now;
+        watched.sawOpen = sawOpen;
+        return watched;
     }
 
     private void syncPosition(JSONObject pos, Map<String, JSONObject> ours, Map<String, BigDecimal> ticks,
@@ -299,6 +405,15 @@ public class TakeProfitJob {
 
     private static String plain(BigDecimal value) {
         return value.stripTrailingZeros().toPlainString();
+    }
+
+    static final class WatchedPosition {
+        private String symbol;
+        private String positionSide;
+        private boolean longPos;
+        private BigDecimal qty;
+        private long openedAt;
+        private boolean sawOpen;
     }
 
     static final class PositionState {

@@ -101,6 +101,40 @@ public class BnApiService {
         return parseArray(body);
     }
 
+    public List<JSONObject> userTrades(String symbol, long startTime, long endTime) {
+        List<JSONObject> all = new ArrayList<>();
+        long cursor = startTime;
+        while (cursor <= endTime) {
+            long windowEnd = Math.min(endTime, cursor + 7L * 24 * 60 * 60 * 1000L - 1);
+            all.addAll(userTradesWindow(symbol, cursor, windowEnd));
+            cursor = windowEnd + 1;
+        }
+        return all;
+    }
+
+    private List<JSONObject> userTradesWindow(String symbol, long startTime, long endTime) {
+        List<JSONObject> all = new ArrayList<>();
+        long pageStart = startTime;
+        for (int i = 0; i < 20 && pageStart <= endTime; i++) {
+            LinkedHashMap<String, String> params = new LinkedHashMap<>();
+            params.put("symbol", symbol);
+            params.put("startTime", String.valueOf(pageStart));
+            params.put("endTime", String.valueOf(endTime));
+            params.put("limit", "1000");
+            List<JSONObject> batch = parseArray(signed("GET", "/fapi/v1/userTrades", params));
+            if (batch.isEmpty()) {
+                break;
+            }
+            all.addAll(batch);
+            long lastTime = batch.get(batch.size() - 1).optLong("time");
+            if (batch.size() < 1000 || lastTime >= endTime) {
+                break;
+            }
+            pageStart = Math.max(lastTime + 1, pageStart + 1);
+        }
+        return all;
+    }
+
     public void placeLimit(String symbol, String side, String positionSide, String quantity,
                            String price, String clientOrderId, boolean reduceOnly) {
         LinkedHashMap<String, String> params = limitParams(symbol, side, positionSide, quantity, price, clientOrderId, reduceOnly);
