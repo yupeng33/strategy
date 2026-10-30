@@ -16,9 +16,12 @@ import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -28,6 +31,8 @@ public class BnApiService {
     private static final String OPEN_ALGO_ORDERS = "/fapi/v1/openAlgoOrders";
     private static final String POSITION = "/fapi/v2/positionRisk";
     private static final String ORDER = "/fapi/v1/order";
+    private static final String LEVERAGE = "/fapi/v1/leverage";
+    private static final String POSITION_SIDE = "/fapi/v1/positionSide/dual";
     private static final String EXCHANGE_INFO = "/fapi/v1/exchangeInfo";
 
     @Value("${binance.api-key}")
@@ -40,7 +45,12 @@ public class BnApiService {
     private String baseUrl;
 
     private volatile Map<String, BigDecimal> tickBySymbol = Map.of();
+    private volatile Map<String, BigDecimal> stepBySymbol = Map.of();
+    private volatile Map<String, BigDecimal> minQtyBySymbol = Map.of();
+    private volatile Set<String> tradableUsdt = Set.of();
     private volatile long tickLoadedAt;
+    private volatile Boolean hedgeMode;
+    private volatile long hedgeLoadedAt;
 
     public List<JSONObject> positions() {
         String body = signed("GET", POSITION, Map.of());
@@ -203,6 +213,98 @@ public class BnApiService {
         signed("DELETE", ORDER, params);
     }
 
+    /**
+     * 24 小时涨幅为正的 U 本位永续，按涨幅从高到低取前若干个。
+     * 返回对象含 symbol、priceChangePercent、lastPrice。
+     */
+    public List<JSONObject> topDayGainers(int limit) throws Exception {
+        priceTicks();
+        Request request = new Request.Builder().url(baseUrl + "/fapi/v1/ticker/24hr").get().build();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String body = response.body() == null ? "" : response.body().string();
+            if (!response.isSuccessful()) {
+                throw new RuntimeException("ticker24hr http " + response.code());
+            }
+            JSONArray arr = new JSONArray(body);
+            List<JSONObject> gainers = new ArrayList<>();
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject row = arr.getJSONObject(i);
+                String symbol = row.optString("symbol", "");
+                if (!isTradableUsdt(symbol)) {
+                    continue;
+                }
+                BigDecimal percent = decimal(row.optString("priceChangePercent", ""));
+                BigDecimal last = decimal(row.optString("lastPrice", ""));
+                if (percent == null || last == null || percent.signum() <= 0 || last.signum() <= 0) {
+                    continue;
+                }
+                gainers.add(row);
+            }
+            gainers.sort(Comparator.comparing((JSONObject row) -> new BigDecimal(row.getString("priceChangePercent"))).reversed());
+            if (gainers.size() > limit) {
+                return new ArrayList<>(gainers.subList(0, limit));
+            }
+            return gainers;
+        }
+    }
+
+    /** 当前 5 分钟 K 线涨幅：(收盘价 - 开盘价) / 开盘价。没有 K 线时返回 null。 */
+    public BigDecimal fiveMinuteChange(String symbol) throws Exception {
+        String url = baseUrl + "/fapi/v1/klines?symbol=" + encode(symbol) + "&interval=5m&limit=1";
+        Request request = new Request.Builder().url(url).get().build();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String body = response.body() == null ? "" : response.body().string();
+            if (!response.isSuccessful()) {
+                throw new RuntimeException("klines http " + response.code() + " " + symbol);
+            }
+            JSONArray candles = new JSONArray(body);
+            if (candles.isEmpty()) {
+                return null;
+            }
+            JSONArray candle = candles.getJSONArray(0);
+            return com.strategy.takeprofit.OpenEntry.fiveMinuteChange(
+                    new BigDecimal(candle.getString(1)), new BigDecimal(candle.getString(4)));
+        }
+    }
+
+    public void setLeverage(String symbol, int leverage) {
+        LinkedHashMap<String, String> params = new LinkedHashMap<>();
+        params.put("symbol", symbol);
+        params.put("leverage", String.valueOf(leverage));
+        signed("POST", LEVERAGE, params);
+    }
+
+    public boolean hedgeMode() {
+        long now = System.currentTimeMillis();
+        if (hedgeMode != null && now - hedgeLoadedAt < 300_000) {
+            return hedgeMode;
+        }
+        String body = signed("GET", POSITION_SIDE, Map.of());
+        hedgeMode = new JSONObject(body).optBoolean("dualSidePosition");
+        hedgeLoadedAt = now;
+        return hedgeMode;
+    }
+
+    public BigDecimal stepSize(String symbol) {
+        priceTicks();
+        return stepBySymbol.get(symbol);
+    }
+
+    public BigDecimal minQty(String symbol) {
+        priceTicks();
+        return minQtyBySymbol.get(symbol);
+    }
+
+    public boolean isTradableUsdt(String symbol) {
+        if (symbol == null || symbol.isEmpty()) {
+            return false;
+        }
+        if (tradableUsdt.isEmpty()) {
+            return symbol.endsWith("USDT") && !symbol.contains("_");
+        }
+        return tradableUsdt.contains(symbol);
+    }
+
     public void cancelAlgo(String symbol, long algoId) {
         LinkedHashMap<String, String> params = new LinkedHashMap<>();
         params.put("symbol", symbol);
@@ -219,17 +321,32 @@ public class BnApiService {
             }
             JSONArray symbols = new JSONObject(body).getJSONArray("symbols");
             Map<String, BigDecimal> ticks = new LinkedHashMap<>();
+            Map<String, BigDecimal> steps = new LinkedHashMap<>();
+            Map<String, BigDecimal> minQtys = new LinkedHashMap<>();
+            Set<String> tradable = new HashSet<>();
             for (int i = 0; i < symbols.length(); i++) {
                 JSONObject symbol = symbols.getJSONObject(i);
+                String name = symbol.getString("symbol");
+                if ("TRADING".equals(symbol.optString("status"))
+                        && "PERPETUAL".equals(symbol.optString("contractType"))
+                        && "USDT".equals(symbol.optString("quoteAsset"))) {
+                    tradable.add(name);
+                }
                 JSONArray filters = symbol.getJSONArray("filters");
                 for (int j = 0; j < filters.length(); j++) {
                     JSONObject filter = filters.getJSONObject(j);
-                    if ("PRICE_FILTER".equals(filter.getString("filterType"))) {
-                        ticks.put(symbol.getString("symbol"), new BigDecimal(filter.getString("tickSize")));
-                        break;
+                    String filterType = filter.getString("filterType");
+                    if ("PRICE_FILTER".equals(filterType)) {
+                        ticks.put(name, new BigDecimal(filter.getString("tickSize")));
+                    } else if ("LOT_SIZE".equals(filterType)) {
+                        steps.put(name, new BigDecimal(filter.getString("stepSize")));
+                        minQtys.put(name, new BigDecimal(filter.getString("minQty")));
                     }
                 }
             }
+            stepBySymbol = steps;
+            minQtyBySymbol = minQtys;
+            tradableUsdt = tradable;
             return ticks;
         }
     }
@@ -269,6 +386,17 @@ public class BnApiService {
             throw e;
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private static BigDecimal decimal(String text) {
+        if (text == null || text.isEmpty()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(text);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

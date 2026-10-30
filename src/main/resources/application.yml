@@ -14,9 +14,12 @@ take-profit:
 # 开仓挂单价格和现价相差超过该比例则撤单。0.05 表示 5%
 open-order:
   max-price-diff: 0.05
+  margin: 100
+  leverage: 10
+  price-offset: 0.001
 
-# 电报通知。enabled 为 false 时不发送
+# 电报通知。开单和关单会发到该会话
 telegram:
-  enabled: false
+  enabled: true
   botToken: 7960913304:AAFiw3cDQBQdxgrNAYqaF80TCXoWEPwJV7Y
   chatId: -4945032554

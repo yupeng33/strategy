@@ -11,6 +11,8 @@ import org.springframework.stereotype.Component;
 import javax.annotation.Resource;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,18 +26,29 @@ import java.util.concurrent.ConcurrentHashMap;
  * 仓位消失时撤掉本程序挂的止盈单。
  * 新开仓输出手续费；发现平仓时查询成交记录，输出手续费和盈利。
  * 开仓限价单离现价超过设定比例时撤单。
+ * 没有仓位、也没有未成交的开仓单时，按 24 小时涨幅前 10 再比 5 分钟涨幅，对第一名限价做多。
  */
 @Slf4j
 @Component
 public class TakeProfitJob {
 
     private static final String CLIENT_ID_PREFIX = "tp_";
+    private static final String OPEN_ID_PREFIX = "op_";
 
     @Value("${take-profit.margin-ratio:0.10}")
     private String marginRatioText;
 
     @Value("${open-order.max-price-diff:0.05}")
     private String maxPriceDiffText;
+
+    @Value("${open-order.margin:100}")
+    private String openMarginText;
+
+    @Value("${open-order.leverage:10}")
+    private String openLeverageText;
+
+    @Value("${open-order.price-offset:0.001}")
+    private String openPriceOffsetText;
 
     @Resource
     private BnApiService bnApiService;
@@ -84,10 +97,19 @@ public class TakeProfitJob {
             log.error("统计开平仓手续费失败", e);
         }
 
+        Set<Long> cancelledOpens = Set.of();
         try {
-            cancelDistantOpenOrders(positions, openOrders);
+            cancelledOpens = cancelDistantOpenOrders(positions, openOrders);
         } catch (Exception e) {
             log.error("检查开仓挂单失败", e);
+        }
+
+        if (positions.isEmpty() && !hasOpeningOrder(openOrders, cancelledOpens)) {
+            try {
+                openFastestLong();
+            } catch (Exception e) {
+                log.error("开仓失败", e);
+            }
         }
 
         Map<String, BigDecimal> ticks = bnApiService.priceTicks();
@@ -124,16 +146,17 @@ public class TakeProfitJob {
         placedState.keySet().retainAll(liveKeys);
     }
 
-    private void cancelDistantOpenOrders(List<JSONObject> positions, List<JSONObject> openOrders) {
+    private Set<Long> cancelDistantOpenOrders(List<JSONObject> positions, List<JSONObject> openOrders) {
+        Set<Long> cancelled = new HashSet<>();
         BigDecimal maxDiff;
         try {
             maxDiff = new BigDecimal(maxPriceDiffText);
         } catch (NumberFormatException e) {
             log.error("open-order.max-price-diff 无法解析: {}", maxPriceDiffText);
-            return;
+            return cancelled;
         }
         if (maxDiff.signum() <= 0) {
-            return;
+            return cancelled;
         }
 
         Map<String, BigDecimal> oneWayAmt = new LinkedHashMap<>();
@@ -150,7 +173,7 @@ public class TakeProfitJob {
             }
         }
         if (stale.isEmpty()) {
-            return;
+            return cancelled;
         }
 
         Map<String, BigDecimal> prices;
@@ -158,7 +181,7 @@ public class TakeProfitJob {
             prices = bnApiService.lastPrices();
         } catch (Exception e) {
             log.error("读取现价失败，本轮不撤开仓挂单", e);
-            return;
+            return cancelled;
         }
 
         for (JSONObject order : stale) {
@@ -174,11 +197,134 @@ public class TakeProfitJob {
                         plain(maxDiff.multiply(new BigDecimal("100"))),
                         symbol, order.optString("side"), plain(orderPrice), plain(current));
                 log.info(message);
-                telegramNotifier.send(message);
+                cancelled.add(order.getLong("orderId"));
             } catch (Exception e) {
                 log.error("撤销开仓挂单失败 {} {}", symbol, order.optLong("orderId"), e);
             }
         }
+        return cancelled;
+    }
+
+    private static boolean hasOpeningOrder(List<JSONObject> openOrders, Set<Long> cancelled) {
+        for (JSONObject order : openOrders) {
+            if (cancelled.contains(order.optLong("orderId"))) {
+                continue;
+            }
+            if (isOpeningLimit(order, BigDecimal.ZERO)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 24 小时涨幅前 10 的币，再按当前 5 分钟 K 线涨幅从高到低，只对第一名挂做多限价。
+     * 限价为现价下跌配置比例，数量按固定保证金和杠杆计算。
+     */
+    private void openFastestLong() {
+        BigDecimal margin;
+        BigDecimal offset;
+        int leverage;
+        try {
+            margin = new BigDecimal(openMarginText);
+            offset = new BigDecimal(openPriceOffsetText);
+            leverage = Integer.parseInt(openLeverageText.trim());
+        } catch (NumberFormatException e) {
+            log.error("开仓参数无法解析 margin={} leverage={} offset={}", openMarginText, openLeverageText, openPriceOffsetText);
+            return;
+        }
+        if (margin.signum() <= 0 || leverage <= 0 || offset.signum() < 0 || offset.compareTo(BigDecimal.ONE) >= 0) {
+            log.error("开仓参数无效 margin={} leverage={} offset={}", openMarginText, openLeverageText, openPriceOffsetText);
+            return;
+        }
+
+        List<JSONObject> top;
+        try {
+            top = bnApiService.topDayGainers(10);
+        } catch (Exception e) {
+            log.error("读取涨幅榜失败", e);
+            return;
+        }
+        if (top.isEmpty()) {
+            log.info("没有上涨的合约，本轮不开仓");
+            return;
+        }
+
+        List<Candidate> ranked = new ArrayList<>();
+        for (JSONObject row : top) {
+            String symbol = row.getString("symbol");
+            BigDecimal fiveMinute;
+            try {
+                fiveMinute = bnApiService.fiveMinuteChange(symbol);
+            } catch (Exception e) {
+                log.warn("读取 5 分钟涨幅失败 {}", symbol, e);
+                continue;
+            }
+            if (fiveMinute == null) {
+                continue;
+            }
+            ranked.add(new Candidate(symbol, new BigDecimal(row.getString("priceChangePercent")),
+                    fiveMinute, new BigDecimal(row.getString("lastPrice"))));
+        }
+        ranked.sort(Comparator.comparing((Candidate c) -> c.fiveMinute).reversed());
+        if (ranked.isEmpty()) {
+            log.info("涨幅前 10 没有可用的 5 分钟行情，本轮不开仓");
+            return;
+        }
+
+        StringBuilder board = new StringBuilder("5分钟涨幅排序");
+        for (int i = 0; i < ranked.size(); i++) {
+            Candidate c = ranked.get(i);
+            board.append(String.format(" %d.%s 5分钟%s%% 24小时%s%%",
+                    i + 1, c.symbol, plain(c.fiveMinute.multiply(new BigDecimal("100"))), plain(c.dayPercent)));
+        }
+        log.info(board.toString());
+
+        placeLongLimit(ranked.get(0), bnApiService.priceTicks(), margin, leverage, offset);
+    }
+
+    private boolean placeLongLimit(Candidate candidate, Map<String, BigDecimal> ticks,
+                                   BigDecimal margin, int leverage, BigDecimal offset) {
+        BigDecimal tick = ticks.get(candidate.symbol);
+        BigDecimal step = bnApiService.stepSize(candidate.symbol);
+        BigDecimal minQty = bnApiService.minQty(candidate.symbol);
+        if (tick == null || step == null) {
+            log.warn("缺少价格或数量精度，跳过 {}", candidate.symbol);
+            return false;
+        }
+        BigDecimal price = OpenEntry.alignDown(OpenEntry.limitPrice(candidate.lastPrice, offset), tick);
+        if (price == null || price.signum() <= 0) {
+            log.warn("开仓价格无效，跳过 {}", candidate.symbol);
+            return false;
+        }
+        BigDecimal qty = OpenEntry.alignDown(OpenEntry.quantity(margin, leverage, price), step);
+        if (qty == null || qty.signum() <= 0 || (minQty != null && qty.compareTo(minQty) < 0)) {
+            log.warn("开仓数量低于最小下单量，跳过 {} 数量 {}", candidate.symbol, qty);
+            return false;
+        }
+        try {
+            bnApiService.setLeverage(candidate.symbol, leverage);
+            String positionSide = bnApiService.hedgeMode() ? "LONG" : "BOTH";
+            bnApiService.placeLimit(candidate.symbol, "BUY", positionSide, plain(qty), plain(price),
+                    openClientId(candidate.symbol), false);
+            String message = String.format("开单 %s 做多 价格 %s 现价 %s 数量 %s 保证金 %s 杠杆 %sx 5分钟涨幅 %s%%",
+                    candidate.symbol, plain(price), plain(candidate.lastPrice), plain(qty),
+                    plain(margin), leverage, plain(candidate.fiveMinute.multiply(new BigDecimal("100"))));
+            log.info(message);
+            telegramNotifier.send(message);
+            return true;
+        } catch (Exception e) {
+            log.error("限价开多失败 {}", candidate.symbol, e);
+            return false;
+        }
+    }
+
+    private static String openClientId(String symbol) {
+        String id = OPEN_ID_PREFIX + symbol;
+        if (id.length() <= 36) {
+            return id;
+        }
+        return id.substring(0, 36);
     }
 
     static boolean isOpeningLimit(JSONObject order, BigDecimal oneWayPositionAmt) {
@@ -255,6 +401,7 @@ public class TakeProfitJob {
     }
 
     private void reportOpen(WatchedPosition position) {
+        String fee = "查询失败";
         try {
             long now = System.currentTimeMillis();
             List<JSONObject> trades = bnApiService.userTrades(position.symbol, now - 120_000L, now);
@@ -263,17 +410,19 @@ public class TakeProfitJob {
             if (!opens.isEmpty()) {
                 position.openedAt = opens.stream().mapToLong(trade -> trade.optLong("time")).min().orElse(position.openedAt);
             }
-            String fee = PositionTradeReport.commissionText(opens);
-            String message = String.format("开仓 %s %s 数量 %s 手续费 %s",
-                    position.symbol, position.longPos ? "多" : "空", plain(position.qty), fee);
-            log.info(message);
-            telegramNotifier.send(message);
+            fee = PositionTradeReport.commissionText(opens);
         } catch (Exception e) {
             log.error("查询开仓手续费失败 {}", position.symbol, e);
         }
+        String message = String.format("开单 %s %s 数量 %s 手续费 %s",
+                position.symbol, position.longPos ? "多" : "空", plain(position.qty), fee);
+        log.info(message);
+        telegramNotifier.send(message);
     }
 
     private void reportClose(WatchedPosition position) {
+        String fee = "查询失败";
+        String pnl = "查询失败";
         try {
             long now = System.currentTimeMillis();
             long start = position.sawOpen
@@ -283,15 +432,15 @@ public class TakeProfitJob {
             List<JSONObject> round = position.sawOpen
                     ? PositionTradeReport.heldRound(trades, position.positionSide, position.openedAt)
                     : PositionTradeReport.closedRound(trades, position.longPos, position.positionSide, position.qty);
-            String fee = PositionTradeReport.commissionText(round);
-            String pnl = plain(PositionTradeReport.realizedPnl(round));
-            String message = String.format("关仓 %s %s 手续费 %s 盈利 %s USDT",
-                    position.symbol, position.longPos ? "多" : "空", fee, pnl);
-            log.info(message);
-            telegramNotifier.send(message);
+            fee = PositionTradeReport.commissionText(round);
+            pnl = plain(PositionTradeReport.realizedPnl(round));
         } catch (Exception e) {
             log.error("查询关仓成交失败 {}", position.symbol, e);
         }
+        String message = String.format("关单 %s %s 手续费 %s 盈利 %s USDT",
+                position.symbol, position.longPos ? "多" : "空", fee, pnl);
+        log.info(message);
+        telegramNotifier.send(message);
     }
 
     private static WatchedPosition watch(JSONObject pos, long now, boolean sawOpen) {
@@ -382,9 +531,6 @@ public class TakeProfitJob {
             String action = (changed || !related.isEmpty()) ? "止盈限价单已按当前仓位重挂" : "止盈限价单已设置";
             log.info("{} {} {} 保证金={}U 目标盈利={}U 限价={}",
                     action, symbol, direction, plain(margin), plain(target), triggerText);
-            telegramNotifier.send(String.format(
-                    "%s\n币种: %s\n方向: %s\n保证金: %sU\n目标盈利: %sU\n限价: %s",
-                    action, symbol, direction, plain(margin), plain(target), triggerText));
         } catch (RuntimeException e) {
             log.error("挂止盈限价单失败 {} {}", symbol, direction, e);
         }
@@ -478,7 +624,7 @@ public class TakeProfitJob {
         try {
             bnApiService.cancelOrder(order.getString("symbol"), order.getLong("orderId"));
             if (notice != null) {
-                telegramNotifier.send(notice);
+                log.info(notice);
             }
         } catch (Exception e) {
             log.error("撤销止盈单失败 {} {}", order.optString("symbol"), order.optLong("orderId"), e);
@@ -505,6 +651,20 @@ public class TakeProfitJob {
 
     private static String plain(BigDecimal value) {
         return value.stripTrailingZeros().toPlainString();
+    }
+
+    static final class Candidate {
+        private final String symbol;
+        private final BigDecimal dayPercent;
+        private final BigDecimal fiveMinute;
+        private final BigDecimal lastPrice;
+
+        Candidate(String symbol, BigDecimal dayPercent, BigDecimal fiveMinute, BigDecimal lastPrice) {
+            this.symbol = symbol;
+            this.dayPercent = dayPercent;
+            this.fiveMinute = fiveMinute;
+            this.lastPrice = lastPrice;
+        }
     }
 
     static final class WatchedPosition {
