@@ -72,21 +72,39 @@ public final class PositionTradeReport {
                 .orElse(null);
     }
 
-    /** 当前仓位里，第一单之外的开仓订单数。同一订单的多笔成交只算一次。 */
-    public static int filledAddOrders(List<JSONObject> openingFills) {
+    /**
+     * 成交价至少落到半档以下的开仓订单数。同一订单的多笔成交只算一次。
+     * 和第一笔价格接近的重复开仓不算平投。
+     */
+    public static int filledAddOrders(List<JSONObject> openingFills, BigDecimal firstPrice, BigDecimal dropRatio) {
+        if (firstPrice == null || dropRatio == null || firstPrice.signum() <= 0 || dropRatio.signum() <= 0) {
+            return 0;
+        }
+        BigDecimal threshold = firstPrice.multiply(BigDecimal.ONE.subtract(dropRatio.multiply(new BigDecimal("0.5"))));
         List<JSONObject> sorted = openingFills.stream()
                 .sorted(Comparator.comparingLong((JSONObject trade) -> trade.optLong("time"))
                         .thenComparingLong(trade -> trade.optLong("id")))
                 .toList();
-        Set<String> orderIds = new LinkedHashSet<>();
+        Set<String> counted = new LinkedHashSet<>();
+        String firstOrderId = null;
+        int adds = 0;
         for (JSONObject trade : sorted) {
             String orderId = trade.optString("orderId", "");
             if (orderId.isEmpty()) {
                 orderId = "t" + trade.optLong("id");
             }
-            orderIds.add(orderId);
+            if (firstOrderId == null) {
+                firstOrderId = orderId;
+            }
+            if (orderId.equals(firstOrderId) || !counted.add(orderId)) {
+                continue;
+            }
+            BigDecimal price = new BigDecimal(trade.optString("price", "0"));
+            if (price.signum() > 0 && price.compareTo(threshold) <= 0) {
+                adds++;
+            }
         }
-        return Math.max(0, orderIds.size() - 1);
+        return adds;
     }
 
     /** 开仓和平仓的 USDT 手续费合计。 */

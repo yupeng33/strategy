@@ -71,6 +71,10 @@ public class TakeProfitJob {
     /** 第一单成交价和平投次数。平仓后清除。 */
     private final Map<String, AddAnchor> addAnchors = new ConcurrentHashMap<>();
 
+    /** 已发出但仓位尚未出现的第一笔开仓，避免成交回报延迟时再挂一笔。 */
+    private String pendingEntrySymbol;
+    private long pendingEntryAt;
+
     private boolean positionBaselineReady;
 
     @Scheduled(fixedDelay = 3_000, initialDelay = 3_000)
@@ -111,7 +115,11 @@ public class TakeProfitJob {
             log.error("检查开仓挂单失败", e);
         }
 
-        if (positions.isEmpty() && !hasOpeningOrder(openOrders, cancelledOpens)) {
+        if (pendingEntrySymbol != null && holds(positions, pendingEntrySymbol)) {
+            pendingEntrySymbol = null;
+        }
+
+        if (positions.isEmpty() && !hasOpeningOrder(openOrders, cancelledOpens) && !waitingForPendingEntry()) {
             try {
                 openFastestLong();
             } catch (Exception e) {
@@ -215,6 +223,9 @@ public class TakeProfitJob {
                 log.info(message);
                 cancelled.add(order.getLong("orderId"));
                 releaseAdd(order);
+                if (symbol.equals(pendingEntrySymbol)) {
+                    pendingEntrySymbol = null;
+                }
             } catch (Exception e) {
                 log.error("撤销开仓挂单失败 {} {}", symbol, order.optLong("orderId"), e);
             }
@@ -297,10 +308,35 @@ public class TakeProfitJob {
         }
         log.info(board.toString());
 
-        placeLong(ranked.get(0).symbol, OpenEntry.limitPrice(ranked.get(0).lastPrice, offset),
+        String symbol = ranked.get(0).symbol;
+        if (placeLong(symbol, OpenEntry.limitPrice(ranked.get(0).lastPrice, offset),
                 bnApiService.priceTicks(), margin, leverage,
-                openClientId(ranked.get(0).symbol),
-                "5分钟涨幅 " + plain(ranked.get(0).fiveMinute.multiply(new BigDecimal("100"))) + "%");
+                openClientId(symbol),
+                "5分钟涨幅 " + plain(ranked.get(0).fiveMinute.multiply(new BigDecimal("100"))) + "%")) {
+            pendingEntrySymbol = symbol;
+            pendingEntryAt = System.currentTimeMillis();
+        }
+    }
+
+    private boolean waitingForPendingEntry() {
+        if (pendingEntrySymbol == null) {
+            return false;
+        }
+        if (System.currentTimeMillis() - pendingEntryAt < 60_000L) {
+            log.info("等待上一笔开仓结果，暂不重复开仓 {}", pendingEntrySymbol);
+            return true;
+        }
+        pendingEntrySymbol = null;
+        return false;
+    }
+
+    private static boolean holds(List<JSONObject> positions, String symbol) {
+        for (JSONObject pos : positions) {
+            if (symbol.equals(pos.optString("symbol")) && new BigDecimal(pos.getString("positionAmt")).signum() != 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -399,7 +435,13 @@ public class TakeProfitJob {
             List<JSONObject> trades = bnApiService.userTrades(symbol, now - 7L * 24 * 60 * 60 * 1000L, now);
             List<JSONObject> opens = PositionTradeReport.newestFillsUntilQty(trades, true, longPos, positionSide, qty);
             BigDecimal first = PositionTradeReport.firstOrderPrice(opens);
-            int filledAdds = PositionTradeReport.filledAddOrders(opens);
+            BigDecimal drop;
+            try {
+                drop = new BigDecimal(addDropText);
+            } catch (NumberFormatException e) {
+                drop = new BigDecimal("0.10");
+            }
+            int filledAdds = PositionTradeReport.filledAddOrders(opens, first, drop);
             if (first == null) {
                 first = new BigDecimal(pos.optString("entryPrice", "0"));
                 filledAdds = 0;
