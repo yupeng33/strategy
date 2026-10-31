@@ -597,10 +597,7 @@ public class TakeProfitJob {
             List<JSONObject> round = position.sawOpen
                     ? PositionTradeReport.heldRound(trades, position.positionSide, position.openedAt)
                     : PositionTradeReport.closedRound(trades, position.longPos, position.positionSide, position.qty);
-            Map<String, BigDecimal> prices = PositionTradeReport.needsUsdtPrice(round)
-                    ? bnApiService.lastPrices()
-                    : Map.of();
-            pnl = plain(PositionTradeReport.netPnl(round, prices));
+            pnl = plain(PositionTradeReport.netPnl(round));
         } catch (Exception e) {
             log.error("查询关仓成交失败 {}", position.symbol, e);
         }
