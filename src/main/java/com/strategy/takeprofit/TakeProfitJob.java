@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 扫描币安 U 本位当前仓位，按保证金比例挂止盈限价单。
  * 数量、开仓价或杠杆变化时，先撤掉对应止盈单，再按当前仓位重挂。
  * 仓位消失时撤掉本程序挂的止盈单。
- * 新开仓输出手续费；发现平仓时查询成交记录，输出手续费和盈利。
+ * 发现平仓时查询成交记录，盈利为收益减去开仓和平仓手续费。
  * 开仓限价单离现价超过设定比例时撤单。
  * 没有仓位、也没有未成交的开仓单时，按 24 小时涨幅前 10 再比 5 分钟涨幅，对第一名限价做多。
  * 持有多单后，以第一单成交价为基准，每下跌设定比例就用同样保证金再挂一笔。
@@ -471,7 +471,6 @@ public class TakeProfitJob {
             String message = String.format("开单 %s 做多 价格 %s 现价 %s 数量 %s 保证金 %s 杠杆 %sx %s",
                     symbol, plain(price), plain(lastPrice), plain(qty), plain(margin), leverage, note);
             log.info(message);
-            telegramNotifier.send(message);
             return true;
         } catch (Exception e) {
             log.error("限价开多失败 {}", symbol, e);
@@ -569,7 +568,6 @@ public class TakeProfitJob {
     }
 
     private void reportOpen(WatchedPosition position) {
-        String fee = "查询失败";
         try {
             long now = System.currentTimeMillis();
             List<JSONObject> trades = bnApiService.userTrades(position.symbol, now - 120_000L, now);
@@ -578,19 +576,17 @@ public class TakeProfitJob {
             if (!opens.isEmpty()) {
                 position.openedAt = opens.stream().mapToLong(trade -> trade.optLong("time")).min().orElse(position.openedAt);
             }
-            fee = PositionTradeReport.commissionText(opens);
         } catch (Exception e) {
-            log.error("查询开仓手续费失败 {}", position.symbol, e);
+            log.error("查询开仓成交失败 {}", position.symbol, e);
         }
-        String message = String.format("开单 %s %s 数量 %s 手续费 %s",
-                position.symbol, position.longPos ? "多" : "空", plain(position.qty), fee);
+        String message = String.format("开单 %s %s 数量 %s",
+                position.symbol, position.longPos ? "多" : "空", plain(position.qty));
         log.info(message);
         telegramNotifier.send(message);
     }
 
     private void reportClose(WatchedPosition position) {
         addAnchors.remove(anchorKey(position.symbol, position.positionSide));
-        String fee = "查询失败";
         String pnl = "查询失败";
         try {
             long now = System.currentTimeMillis();
@@ -601,13 +597,15 @@ public class TakeProfitJob {
             List<JSONObject> round = position.sawOpen
                     ? PositionTradeReport.heldRound(trades, position.positionSide, position.openedAt)
                     : PositionTradeReport.closedRound(trades, position.longPos, position.positionSide, position.qty);
-            fee = PositionTradeReport.commissionText(round);
-            pnl = plain(PositionTradeReport.realizedPnl(round));
+            Map<String, BigDecimal> prices = PositionTradeReport.needsUsdtPrice(round)
+                    ? bnApiService.lastPrices()
+                    : Map.of();
+            pnl = plain(PositionTradeReport.netPnl(round, prices));
         } catch (Exception e) {
             log.error("查询关仓成交失败 {}", position.symbol, e);
         }
-        String message = String.format("关单 %s %s 手续费 %s 盈利 %s USDT",
-                position.symbol, position.longPos ? "多" : "空", fee, pnl);
+        String message = String.format("关单 %s %s 盈利 %s USDT",
+                position.symbol, position.longPos ? "多" : "空", pnl);
         log.info(message);
         telegramNotifier.send(message);
     }

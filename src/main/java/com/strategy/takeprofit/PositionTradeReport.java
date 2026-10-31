@@ -5,14 +5,13 @@ import org.json.JSONObject;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * 从币安成交记录里汇总开仓手续费，以及平仓时的手续费和已实现盈利。
+ * 从币安成交记录汇总一轮仓位。关仓净盈利 = 已实现收益 − 开仓和平仓手续费。
  */
 public final class PositionTradeReport {
 
@@ -91,35 +90,59 @@ public final class PositionTradeReport {
         return Math.max(0, orderIds.size() - 1);
     }
 
-    public static String commissionText(List<JSONObject> trades) {
-        Map<String, BigDecimal> byAsset = new LinkedHashMap<>();
-        for (JSONObject trade : trades) {
-            String asset = trade.optString("commissionAsset", "USDT");
-            if (asset.isEmpty()) {
-                asset = "USDT";
-            }
-            BigDecimal fee = new BigDecimal(trade.optString("commission", "0"));
-            byAsset.merge(asset, fee, BigDecimal::add);
-        }
-        if (byAsset.isEmpty()) {
-            return "未查到成交记录";
-        }
-        StringBuilder text = new StringBuilder();
-        for (Map.Entry<String, BigDecimal> entry : byAsset.entrySet()) {
-            if (text.length() > 0) {
-                text.append(", ");
-            }
-            text.append(plain(entry.getValue())).append(' ').append(entry.getKey());
-        }
-        return text.toString();
+    /** 已实现收益减去开仓和平仓手续费。非 USDT 手续费按现价折成 USDT。 */
+    public static BigDecimal netPnl(List<JSONObject> trades, Map<String, BigDecimal> lastPrices) {
+        return realizedPnl(trades).subtract(feeInUsdt(trades, lastPrices));
     }
 
-    public static BigDecimal realizedPnl(List<JSONObject> trades) {
+    public static boolean needsUsdtPrice(List<JSONObject> trades) {
+        for (JSONObject trade : trades) {
+            if (fee(trade).signum() == 0) {
+                continue;
+            }
+            if (!"USDT".equals(feeAsset(trade))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static BigDecimal realizedPnl(List<JSONObject> trades) {
         BigDecimal pnl = BigDecimal.ZERO;
         for (JSONObject trade : trades) {
             pnl = pnl.add(new BigDecimal(trade.optString("realizedPnl", "0")));
         }
         return pnl;
+    }
+
+    private static BigDecimal feeInUsdt(List<JSONObject> trades, Map<String, BigDecimal> lastPrices) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (JSONObject trade : trades) {
+            BigDecimal fee = fee(trade);
+            if (fee.signum() == 0) {
+                continue;
+            }
+            String asset = feeAsset(trade);
+            if ("USDT".equals(asset)) {
+                total = total.add(fee);
+                continue;
+            }
+            BigDecimal price = lastPrices == null ? null : lastPrices.get(asset + "USDT");
+            if (price == null || price.signum() <= 0) {
+                throw new IllegalStateException("无法把手续费折成 USDT: " + plain(fee) + " " + asset);
+            }
+            total = total.add(fee.multiply(price));
+        }
+        return total;
+    }
+
+    private static BigDecimal fee(JSONObject trade) {
+        return new BigDecimal(trade.optString("commission", "0"));
+    }
+
+    private static String feeAsset(JSONObject trade) {
+        String asset = trade.optString("commissionAsset", "USDT");
+        return asset.isEmpty() ? "USDT" : asset;
     }
 
     private static boolean samePosition(JSONObject trade, String positionSide) {
