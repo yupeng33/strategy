@@ -27,6 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 新开仓输出手续费；发现平仓时查询成交记录，输出手续费和盈利。
  * 开仓限价单离现价超过设定比例时撤单。
  * 没有仓位、也没有未成交的开仓单时，按 24 小时涨幅前 10 再比 5 分钟涨幅，对第一名限价做多。
+ * 持有多单后，以第一单成交价为基准，每下跌设定比例就用同样保证金再挂一笔。
  */
 @Slf4j
 @Component
@@ -50,6 +51,9 @@ public class TakeProfitJob {
     @Value("${open-order.price-offset:0.001}")
     private String openPriceOffsetText;
 
+    @Value("${open-order.add-drop:0.10}")
+    private String addDropText;
+
     @Resource
     private BnApiService bnApiService;
 
@@ -63,6 +67,9 @@ public class TakeProfitJob {
 
     /** 已见到的仓位，用来识别开仓和平仓。 */
     private final Map<String, WatchedPosition> watchedPositions = new ConcurrentHashMap<>();
+
+    /** 第一单成交价和平投次数。平仓后清除。 */
+    private final Map<String, AddAnchor> addAnchors = new ConcurrentHashMap<>();
 
     private boolean positionBaselineReady;
 
@@ -109,6 +116,12 @@ public class TakeProfitJob {
                 openFastestLong();
             } catch (Exception e) {
                 log.error("开仓失败", e);
+            }
+        } else if (!positions.isEmpty()) {
+            try {
+                addOnDrop(positions, openOrders, cancelledOpens);
+            } catch (Exception e) {
+                log.error("平投失败", e);
             }
         }
 
@@ -198,6 +211,7 @@ public class TakeProfitJob {
                         symbol, order.optString("side"), plain(orderPrice), plain(current));
                 log.info(message);
                 cancelled.add(order.getLong("orderId"));
+                releaseAdd(order);
             } catch (Exception e) {
                 log.error("撤销开仓挂单失败 {} {}", symbol, order.optLong("orderId"), e);
             }
@@ -280,51 +294,205 @@ public class TakeProfitJob {
         }
         log.info(board.toString());
 
-        placeLongLimit(ranked.get(0), bnApiService.priceTicks(), margin, leverage, offset);
+        placeLong(ranked.get(0).symbol, ranked.get(0).lastPrice, bnApiService.priceTicks(), margin, leverage, offset,
+                openClientId(ranked.get(0).symbol),
+                "5分钟涨幅 " + plain(ranked.get(0).fiveMinute.multiply(new BigDecimal("100"))) + "%");
     }
 
-    private boolean placeLongLimit(Candidate candidate, Map<String, BigDecimal> ticks,
-                                   BigDecimal margin, int leverage, BigDecimal offset) {
-        BigDecimal tick = ticks.get(candidate.symbol);
-        BigDecimal step = bnApiService.stepSize(candidate.symbol);
-        BigDecimal minQty = bnApiService.minQty(candidate.symbol);
+    /**
+     * 已有多单时，现价相对第一单每跌一档就加一笔同样保证金的限价多单。
+     * 同一合约已有未成交开仓单时不加。
+     */
+    private void addOnDrop(List<JSONObject> positions, List<JSONObject> openOrders, Set<Long> cancelled) {
+        BigDecimal drop;
+        BigDecimal margin;
+        BigDecimal offset;
+        int leverage;
+        try {
+            drop = new BigDecimal(addDropText);
+            margin = new BigDecimal(openMarginText);
+            offset = new BigDecimal(openPriceOffsetText);
+            leverage = Integer.parseInt(openLeverageText.trim());
+        } catch (NumberFormatException e) {
+            log.error("平投参数无法解析");
+            return;
+        }
+        if (drop.signum() <= 0 || drop.compareTo(BigDecimal.ONE) >= 0
+                || margin.signum() <= 0 || leverage <= 0 || offset.signum() < 0 || offset.compareTo(BigDecimal.ONE) >= 0) {
+            log.error("平投参数无效 drop={} margin={} leverage={} offset={}", addDropText, openMarginText, openLeverageText, openPriceOffsetText);
+            return;
+        }
+
+        Map<String, BigDecimal> prices = null;
+        Map<String, BigDecimal> ticks = null;
+        for (JSONObject pos : positions) {
+            BigDecimal amt = new BigDecimal(pos.getString("positionAmt"));
+            String positionSide = pos.optString("positionSide", "BOTH");
+            boolean longPos = "LONG".equals(positionSide) || (!"SHORT".equals(positionSide) && amt.signum() > 0);
+            if (!longPos) {
+                continue;
+            }
+            String symbol = pos.getString("symbol");
+            String key = anchorKey(symbol, positionSide);
+            if (hasSymbolOpeningOrder(openOrders, cancelled, symbol, "BOTH".equals(positionSide) ? amt : BigDecimal.ZERO)) {
+                continue;
+            }
+            BigDecimal qty = amt.abs();
+            AddAnchor anchor = refreshAnchor(key, pos, qty);
+            if (anchor == null || anchor.firstPrice == null) {
+                continue;
+            }
+            if (prices == null) {
+                try {
+                    prices = bnApiService.lastPrices();
+                } catch (Exception e) {
+                    log.error("读取现价失败，本轮不平投", e);
+                    return;
+                }
+                ticks = bnApiService.priceTicks();
+            }
+            BigDecimal last = prices.get(symbol);
+            int steps = OpenEntry.dropSteps(anchor.firstPrice, last, drop);
+            if (steps <= anchor.committedAdds) {
+                continue;
+            }
+            int next = anchor.committedAdds + 1;
+            String note = String.format("平投第%d次 基准价 %s", next, plain(anchor.firstPrice));
+            if (placeLong(symbol, last, ticks, margin, leverage, offset, openClientId(symbol, next), note)) {
+                anchor.committedAdds = next;
+            }
+        }
+    }
+
+    private AddAnchor refreshAnchor(String key, JSONObject pos, BigDecimal qty) {
+        AddAnchor anchor = addAnchors.get(key);
+        if (anchor != null && anchor.qty != null && anchor.qty.compareTo(qty) == 0 && anchor.firstPrice != null) {
+            return anchor;
+        }
+        AddAnchor loaded = loadAnchor(pos, qty);
+        if (loaded == null) {
+            return anchor;
+        }
+        if (anchor == null) {
+            addAnchors.put(key, loaded);
+            return loaded;
+        }
+        if (anchor.firstPrice == null) {
+            anchor.firstPrice = loaded.firstPrice;
+        }
+        if (anchor.qty == null || qty.compareTo(anchor.qty) > 0) {
+            anchor.filledAdds = Math.max(anchor.filledAdds, loaded.filledAdds);
+            anchor.committedAdds = Math.max(anchor.committedAdds, anchor.filledAdds);
+        } else {
+            anchor.filledAdds = loaded.filledAdds;
+            anchor.committedAdds = loaded.filledAdds;
+        }
+        anchor.qty = qty;
+        return anchor;
+    }
+
+    private AddAnchor loadAnchor(JSONObject pos, BigDecimal qty) {
+        String symbol = pos.getString("symbol");
+        String positionSide = pos.optString("positionSide", "BOTH");
+        boolean longPos = "LONG".equals(positionSide) || (!"SHORT".equals(positionSide) && qty.signum() > 0);
+        try {
+            long now = System.currentTimeMillis();
+            List<JSONObject> trades = bnApiService.userTrades(symbol, now - 7L * 24 * 60 * 60 * 1000L, now);
+            List<JSONObject> opens = PositionTradeReport.newestFillsUntilQty(trades, true, longPos, positionSide, qty);
+            BigDecimal first = PositionTradeReport.firstOrderPrice(opens);
+            int filledAdds = PositionTradeReport.filledAddOrders(opens);
+            if (first == null) {
+                first = new BigDecimal(pos.optString("entryPrice", "0"));
+                filledAdds = 0;
+            }
+            if (first.signum() <= 0) {
+                log.warn("没有第一单价格，暂不平投 {}", symbol);
+                return null;
+            }
+            AddAnchor anchor = new AddAnchor();
+            anchor.firstPrice = first;
+            anchor.qty = qty;
+            anchor.filledAdds = filledAdds;
+            anchor.committedAdds = filledAdds;
+            return anchor;
+        } catch (Exception e) {
+            log.error("读取第一单价格失败 {}", symbol, e);
+            return null;
+        }
+    }
+
+    private void releaseAdd(JSONObject order) {
+        if (!order.optString("clientOrderId", "").startsWith(OPEN_ID_PREFIX)) {
+            return;
+        }
+        AddAnchor anchor = addAnchors.get(anchorKey(order.optString("symbol"), order.optString("positionSide", "BOTH")));
+        if (anchor == null) {
+            return;
+        }
+        anchor.committedAdds = Math.max(anchor.filledAdds, anchor.committedAdds - 1);
+    }
+
+    private static boolean hasSymbolOpeningOrder(List<JSONObject> openOrders, Set<Long> cancelled,
+                                                 String symbol, BigDecimal oneWayAmt) {
+        for (JSONObject order : openOrders) {
+            if (!symbol.equals(order.optString("symbol")) || cancelled.contains(order.optLong("orderId"))) {
+                continue;
+            }
+            if (isOpeningLimit(order, oneWayAmt)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean placeLong(String symbol, BigDecimal lastPrice, Map<String, BigDecimal> ticks,
+                              BigDecimal margin, int leverage, BigDecimal offset, String clientId, String note) {
+        BigDecimal tick = ticks.get(symbol);
+        BigDecimal step = bnApiService.stepSize(symbol);
+        BigDecimal minQty = bnApiService.minQty(symbol);
         if (tick == null || step == null) {
-            log.warn("缺少价格或数量精度，跳过 {}", candidate.symbol);
+            log.warn("缺少价格或数量精度，跳过 {}", symbol);
             return false;
         }
-        BigDecimal price = OpenEntry.alignDown(OpenEntry.limitPrice(candidate.lastPrice, offset), tick);
+        BigDecimal price = OpenEntry.alignDown(OpenEntry.limitPrice(lastPrice, offset), tick);
         if (price == null || price.signum() <= 0) {
-            log.warn("开仓价格无效，跳过 {}", candidate.symbol);
+            log.warn("开仓价格无效，跳过 {}", symbol);
             return false;
         }
         BigDecimal qty = OpenEntry.alignDown(OpenEntry.quantity(margin, leverage, price), step);
         if (qty == null || qty.signum() <= 0 || (minQty != null && qty.compareTo(minQty) < 0)) {
-            log.warn("开仓数量低于最小下单量，跳过 {} 数量 {}", candidate.symbol, qty);
+            log.warn("开仓数量低于最小下单量，跳过 {} 数量 {}", symbol, qty);
             return false;
         }
         try {
-            bnApiService.setLeverage(candidate.symbol, leverage);
+            bnApiService.setLeverage(symbol, leverage);
             String positionSide = bnApiService.hedgeMode() ? "LONG" : "BOTH";
-            bnApiService.placeLimit(candidate.symbol, "BUY", positionSide, plain(qty), plain(price),
-                    openClientId(candidate.symbol), false);
-            String message = String.format("开单 %s 做多 价格 %s 现价 %s 数量 %s 保证金 %s 杠杆 %sx 5分钟涨幅 %s%%",
-                    candidate.symbol, plain(price), plain(candidate.lastPrice), plain(qty),
-                    plain(margin), leverage, plain(candidate.fiveMinute.multiply(new BigDecimal("100"))));
+            bnApiService.placeLimit(symbol, "BUY", positionSide, plain(qty), plain(price), clientId, false);
+            String message = String.format("开单 %s 做多 价格 %s 现价 %s 数量 %s 保证金 %s 杠杆 %sx %s",
+                    symbol, plain(price), plain(lastPrice), plain(qty), plain(margin), leverage, note);
             log.info(message);
             telegramNotifier.send(message);
             return true;
         } catch (Exception e) {
-            log.error("限价开多失败 {}", candidate.symbol, e);
+            log.error("限价开多失败 {}", symbol, e);
             return false;
         }
     }
 
     private static String openClientId(String symbol) {
-        String id = OPEN_ID_PREFIX + symbol;
+        return openClientId(symbol, 0);
+    }
+
+    private static String openClientId(String symbol, int addIndex) {
+        String id = addIndex <= 0 ? OPEN_ID_PREFIX + symbol : OPEN_ID_PREFIX + symbol + "_" + addIndex;
         if (id.length() <= 36) {
             return id;
         }
         return id.substring(0, 36);
+    }
+
+    private static String anchorKey(String symbol, String positionSide) {
+        return symbol + "_" + (positionSide == null || positionSide.isEmpty() ? "BOTH" : positionSide);
     }
 
     static boolean isOpeningLimit(JSONObject order, BigDecimal oneWayPositionAmt) {
@@ -421,6 +589,7 @@ public class TakeProfitJob {
     }
 
     private void reportClose(WatchedPosition position) {
+        addAnchors.remove(anchorKey(position.symbol, position.positionSide));
         String fee = "查询失败";
         String pnl = "查询失败";
         try {
@@ -651,6 +820,13 @@ public class TakeProfitJob {
 
     private static String plain(BigDecimal value) {
         return value.stripTrailingZeros().toPlainString();
+    }
+
+    static final class AddAnchor {
+        private BigDecimal firstPrice;
+        private BigDecimal qty;
+        private int filledAdds;
+        private int committedAdds;
     }
 
     static final class Candidate {

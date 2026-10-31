@@ -6,8 +6,10 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 从币安成交记录里汇总开仓手续费，以及平仓时的手续费和已实现盈利。
@@ -60,6 +62,33 @@ public final class PositionTradeReport {
                 .filter(trade -> trade.optLong("time") >= openedAt)
                 .filter(trade -> samePosition(trade, positionSide))
                 .toList();
+    }
+
+    /** 当前仓位里最早一笔开仓成交价，作为平投基准。 */
+    public static BigDecimal firstOrderPrice(List<JSONObject> openingFills) {
+        return openingFills.stream()
+                .min(Comparator.comparingLong((JSONObject trade) -> trade.optLong("time"))
+                        .thenComparingLong(trade -> trade.optLong("id")))
+                .map(trade -> new BigDecimal(trade.optString("price", "0")))
+                .filter(price -> price.signum() > 0)
+                .orElse(null);
+    }
+
+    /** 当前仓位里，第一单之外的开仓订单数。同一订单的多笔成交只算一次。 */
+    public static int filledAddOrders(List<JSONObject> openingFills) {
+        List<JSONObject> sorted = openingFills.stream()
+                .sorted(Comparator.comparingLong((JSONObject trade) -> trade.optLong("time"))
+                        .thenComparingLong(trade -> trade.optLong("id")))
+                .toList();
+        Set<String> orderIds = new LinkedHashSet<>();
+        for (JSONObject trade : sorted) {
+            String orderId = trade.optString("orderId", "");
+            if (orderId.isEmpty()) {
+                orderId = "t" + trade.optLong("id");
+            }
+            orderIds.add(orderId);
+        }
+        return Math.max(0, orderIds.size() - 1);
     }
 
     public static String commissionText(List<JSONObject> trades) {

@@ -17,6 +17,8 @@ open-order:
   margin: 100
   leverage: 10
   price-offset: 0.001
+  # 相对第一单价格每下跌该比例，再用同样保证金加一笔多单。0.10 表示 10%
+  add-drop: 0.10
 
 # 电报通知。开单和关单会发到该会话
 telegram:

@@ -27,6 +27,26 @@ public final class OpenEntry {
         return margin.multiply(BigDecimal.valueOf(leverage)).divide(price, 12, RoundingMode.DOWN);
     }
 
+    /**
+     * 现价相对第一单价格跌破几个步长。
+     * 基准 100、步长 10% 时，现价 90 为 1 档，80 为 2 档，90.01 为 0 档。
+     */
+    public static int dropSteps(BigDecimal firstPrice, BigDecimal lastPrice, BigDecimal stepRatio) {
+        if (firstPrice == null || lastPrice == null || stepRatio == null
+                || firstPrice.signum() <= 0 || lastPrice.signum() <= 0 || stepRatio.signum() <= 0) {
+            return 0;
+        }
+        int steps = 0;
+        while (steps < 100) {
+            BigDecimal line = firstPrice.multiply(BigDecimal.ONE.subtract(stepRatio.multiply(BigDecimal.valueOf(steps + 1L))));
+            if (line.signum() <= 0 || lastPrice.compareTo(line) > 0) {
+                return steps;
+            }
+            steps++;
+        }
+        return steps;
+    }
+
     public static BigDecimal alignDown(BigDecimal value, BigDecimal step) {
         if (value == null) {
             return null;
