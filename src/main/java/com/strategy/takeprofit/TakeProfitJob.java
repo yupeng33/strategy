@@ -98,15 +98,15 @@ public class TakeProfitJob {
             return;
         }
 
+        Set<Long> cancelledOpens = new HashSet<>();
         try {
-            reportOpensAndCloses(positions);
+            reportOpensAndCloses(positions, openOrders, cancelledOpens);
         } catch (Exception e) {
             log.error("统计开平仓手续费失败", e);
         }
 
-        Set<Long> cancelledOpens = Set.of();
         try {
-            cancelledOpens = cancelDistantOpenOrders(positions, openOrders);
+            cancelledOpens.addAll(cancelDistantOpenOrders(positions, openOrders));
         } catch (Exception e) {
             log.error("检查开仓挂单失败", e);
         }
@@ -543,7 +543,7 @@ public class TakeProfitJob {
         return current.subtract(orderPrice).abs().compareTo(orderPrice.multiply(ratio)) > 0;
     }
 
-    private void reportOpensAndCloses(List<JSONObject> positions) {
+    private void reportOpensAndCloses(List<JSONObject> positions, List<JSONObject> openOrders, Set<Long> cancelledAdds) {
         Map<String, JSONObject> current = new LinkedHashMap<>();
         for (JSONObject pos : positions) {
             BigDecimal amt = new BigDecimal(pos.getString("positionAmt"));
@@ -578,7 +578,7 @@ public class TakeProfitJob {
 
         for (String key : new ArrayList<>(watchedPositions.keySet())) {
             if (!current.containsKey(key)) {
-                reportClose(watchedPositions.remove(key));
+                reportClose(watchedPositions.remove(key), current, openOrders, cancelledAdds);
             }
         }
     }
@@ -600,8 +600,12 @@ public class TakeProfitJob {
         telegramNotifier.send(message);
     }
 
-    private void reportClose(WatchedPosition position) {
+    private void reportClose(WatchedPosition position, Map<String, JSONObject> current,
+                             List<JSONObject> openOrders, Set<Long> cancelledAdds) {
         addAnchors.remove(anchorKey(position.symbol, position.positionSide));
+        if (position.longPos && !hasRemainingLong(current, position.symbol)) {
+            cancelPlannedAdds(openOrders, position.symbol, cancelledAdds);
+        }
         String pnl = "查询失败";
         String fee = "查询失败";
         try {
@@ -622,6 +626,35 @@ public class TakeProfitJob {
                 position.symbol, position.longPos ? "多" : "空", pnl, fee);
         log.info(message);
         telegramNotifier.send(message);
+    }
+
+    private static boolean hasRemainingLong(Map<String, JSONObject> current, String symbol) {
+        for (JSONObject pos : current.values()) {
+            if (!symbol.equals(pos.optString("symbol"))) {
+                continue;
+            }
+            BigDecimal amt = new BigDecimal(pos.getString("positionAmt"));
+            String positionSide = pos.optString("positionSide", "BOTH");
+            if ("LONG".equals(positionSide) || (!"SHORT".equals(positionSide) && amt.signum() > 0)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void cancelPlannedAdds(List<JSONObject> openOrders, String symbol, Set<Long> cancelledAdds) {
+        for (JSONObject order : openOrders) {
+            if (!symbol.equals(order.optString("symbol")) || !isPlannedAdd(order)) {
+                continue;
+            }
+            try {
+                bnApiService.cancelOrder(symbol, order.getLong("orderId"));
+                cancelledAdds.add(order.getLong("orderId"));
+                log.info("仓位已平，撤销补仓单 {} orderId={}", symbol, order.optLong("orderId"));
+            } catch (Exception e) {
+                log.error("撤销补仓单失败 {} {}", symbol, order.optLong("orderId"), e);
+            }
+        }
     }
 
     private static WatchedPosition watch(JSONObject pos, long now, boolean sawOpen) {
