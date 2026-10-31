@@ -23,6 +23,22 @@ public final class OpenEntry {
         return lastPrice.multiply(BigDecimal.ONE.subtract(offset));
     }
 
+    /**
+     * 第 level 档平投的限价。档位价 = 第一单价格 × (1 - 跌幅 × 档位)，再下调开仓偏移。
+     * 基准 100、跌幅 10%、偏移 0.1% 时，第 1 档是 89.901，第 2 档是 79.92。
+     */
+    public static BigDecimal addLevelPrice(BigDecimal firstPrice, BigDecimal dropRatio, int level, BigDecimal offset) {
+        if (firstPrice == null || dropRatio == null || offset == null || level <= 0
+                || firstPrice.signum() <= 0 || dropRatio.signum() <= 0 || offset.signum() < 0) {
+            return null;
+        }
+        BigDecimal line = firstPrice.multiply(BigDecimal.ONE.subtract(dropRatio.multiply(BigDecimal.valueOf(level))));
+        if (line.signum() <= 0) {
+            return null;
+        }
+        return limitPrice(line, offset);
+    }
+
     public static BigDecimal quantity(BigDecimal margin, int leverage, BigDecimal price) {
         return margin.multiply(BigDecimal.valueOf(leverage)).divide(price, 12, RoundingMode.DOWN);
     }

@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 发现平仓时查询成交记录，盈利为收益减去开仓和平仓手续费。
  * 开仓限价单离现价超过设定比例时撤单。
  * 没有仓位、也没有未成交的开仓单时，按 24 小时涨幅前 10 再比 5 分钟涨幅，对第一名限价做多。
- * 持有多单后，以第一单成交价为基准，每下跌设定比例就用同样保证金再挂一笔。
+ * 持有多单后，预先在下一档平投价挂一张加仓限价单；成交后再挂下一档，使每个多单始终有一张加仓单。
  */
 @Slf4j
 @Component
@@ -198,6 +198,9 @@ public class TakeProfitJob {
         }
 
         for (JSONObject order : stale) {
+            if (isPlannedAdd(order)) {
+                continue;
+            }
             String symbol = order.optString("symbol");
             BigDecimal current = prices.get(symbol);
             BigDecimal orderPrice = new BigDecimal(order.optString("price", "0"));
@@ -294,14 +297,15 @@ public class TakeProfitJob {
         }
         log.info(board.toString());
 
-        placeLong(ranked.get(0).symbol, ranked.get(0).lastPrice, bnApiService.priceTicks(), margin, leverage, offset,
+        placeLong(ranked.get(0).symbol, OpenEntry.limitPrice(ranked.get(0).lastPrice, offset),
+                bnApiService.priceTicks(), margin, leverage,
                 openClientId(ranked.get(0).symbol),
                 "5分钟涨幅 " + plain(ranked.get(0).fiveMinute.multiply(new BigDecimal("100"))) + "%");
     }
 
     /**
-     * 已有多单时，现价相对第一单每跌一档就加一笔同样保证金的限价多单。
-     * 同一合约已有未成交开仓单时不加。
+     * 每个多单预先挂下一档平投限价。档位价相对第一笔成交价每档下跌配置比例，再下调开仓偏移。
+     * 已有未成交的加仓单时不重复挂；成交后下一轮补上下一档。
      */
     private void addOnDrop(List<JSONObject> positions, List<JSONObject> openOrders, Set<Long> cancelled) {
         BigDecimal drop;
@@ -323,7 +327,6 @@ public class TakeProfitJob {
             return;
         }
 
-        Map<String, BigDecimal> prices = null;
         Map<String, BigDecimal> ticks = null;
         for (JSONObject pos : positions) {
             BigDecimal amt = new BigDecimal(pos.getString("positionAmt"));
@@ -333,32 +336,25 @@ public class TakeProfitJob {
                 continue;
             }
             String symbol = pos.getString("symbol");
-            String key = anchorKey(symbol, positionSide);
-            if (hasSymbolOpeningOrder(openOrders, cancelled, symbol, "BOTH".equals(positionSide) ? amt : BigDecimal.ZERO)) {
+            if (hasPlannedAdd(openOrders, cancelled, symbol)) {
                 continue;
             }
             BigDecimal qty = amt.abs();
-            AddAnchor anchor = refreshAnchor(key, pos, qty);
+            AddAnchor anchor = refreshAnchor(anchorKey(symbol, positionSide), pos, qty);
             if (anchor == null || anchor.firstPrice == null) {
                 continue;
             }
-            if (prices == null) {
-                try {
-                    prices = bnApiService.lastPrices();
-                } catch (Exception e) {
-                    log.error("读取现价失败，本轮不平投", e);
-                    return;
-                }
+            if (ticks == null) {
                 ticks = bnApiService.priceTicks();
             }
-            BigDecimal last = prices.get(symbol);
-            int steps = OpenEntry.dropSteps(anchor.firstPrice, last, drop);
-            if (steps <= anchor.committedAdds) {
+            int next = anchor.filledAdds + 1;
+            BigDecimal rawPrice = OpenEntry.addLevelPrice(anchor.firstPrice, drop, next, offset);
+            if (rawPrice == null) {
+                log.warn("下一档加仓价无效，跳过 {}", symbol);
                 continue;
             }
-            int next = anchor.committedAdds + 1;
             String note = String.format("平投第%d次 基准价 %s", next, plain(anchor.firstPrice));
-            if (placeLong(symbol, last, ticks, margin, leverage, offset, openClientId(symbol, next), note)) {
+            if (placeLong(symbol, rawPrice, ticks, margin, leverage, openClientId(symbol, next), note)) {
                 anchor.committedAdds = next;
             }
         }
@@ -382,6 +378,9 @@ public class TakeProfitJob {
         }
         if (anchor.qty == null || qty.compareTo(anchor.qty) > 0) {
             anchor.filledAdds = Math.max(anchor.filledAdds, loaded.filledAdds);
+            if (anchor.committedAdds > anchor.filledAdds) {
+                anchor.filledAdds = anchor.committedAdds;
+            }
             anchor.committedAdds = Math.max(anchor.committedAdds, anchor.filledAdds);
         } else {
             anchor.filledAdds = loaded.filledAdds;
@@ -432,21 +431,8 @@ public class TakeProfitJob {
         anchor.committedAdds = Math.max(anchor.filledAdds, anchor.committedAdds - 1);
     }
 
-    private static boolean hasSymbolOpeningOrder(List<JSONObject> openOrders, Set<Long> cancelled,
-                                                 String symbol, BigDecimal oneWayAmt) {
-        for (JSONObject order : openOrders) {
-            if (!symbol.equals(order.optString("symbol")) || cancelled.contains(order.optLong("orderId"))) {
-                continue;
-            }
-            if (isOpeningLimit(order, oneWayAmt)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean placeLong(String symbol, BigDecimal lastPrice, Map<String, BigDecimal> ticks,
-                              BigDecimal margin, int leverage, BigDecimal offset, String clientId, String note) {
+    private boolean placeLong(String symbol, BigDecimal rawPrice, Map<String, BigDecimal> ticks,
+                              BigDecimal margin, int leverage, String clientId, String note) {
         BigDecimal tick = ticks.get(symbol);
         BigDecimal step = bnApiService.stepSize(symbol);
         BigDecimal minQty = bnApiService.minQty(symbol);
@@ -454,7 +440,7 @@ public class TakeProfitJob {
             log.warn("缺少价格或数量精度，跳过 {}", symbol);
             return false;
         }
-        BigDecimal price = OpenEntry.alignDown(OpenEntry.limitPrice(lastPrice, offset), tick);
+        BigDecimal price = OpenEntry.alignDown(rawPrice, tick);
         if (price == null || price.signum() <= 0) {
             log.warn("开仓价格无效，跳过 {}", symbol);
             return false;
@@ -488,6 +474,36 @@ public class TakeProfitJob {
             return id;
         }
         return id.substring(0, 36);
+    }
+
+    static boolean isPlannedAdd(JSONObject order) {
+        String clientId = order.optString("clientOrderId", "");
+        int split = clientId.lastIndexOf('_');
+        if (!clientId.startsWith(OPEN_ID_PREFIX) || split < OPEN_ID_PREFIX.length()) {
+            return false;
+        }
+        String suffix = clientId.substring(split + 1);
+        if (suffix.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < suffix.length(); i++) {
+            if (!Character.isDigit(suffix.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean hasPlannedAdd(List<JSONObject> openOrders, Set<Long> cancelled, String symbol) {
+        for (JSONObject order : openOrders) {
+            if (!symbol.equals(order.optString("symbol")) || cancelled.contains(order.optLong("orderId"))) {
+                continue;
+            }
+            if (isPlannedAdd(order)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String anchorKey(String symbol, String positionSide) {
