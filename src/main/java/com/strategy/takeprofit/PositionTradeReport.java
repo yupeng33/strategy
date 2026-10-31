@@ -89,17 +89,25 @@ public final class PositionTradeReport {
         return Math.max(0, orderIds.size() - 1);
     }
 
+    /** 开仓和平仓的 USDT 手续费合计。 */
+    public static BigDecimal feeUsdt(List<JSONObject> trades) {
+        BigDecimal fee = BigDecimal.ZERO;
+        for (JSONObject trade : trades) {
+            String asset = trade.optString("commissionAsset", "USDT");
+            if (asset.isEmpty() || "USDT".equals(asset)) {
+                fee = fee.add(new BigDecimal(trade.optString("commission", "0")));
+            }
+        }
+        return fee;
+    }
+
     /** 已实现收益减去开仓和平仓的 USDT 手续费。 */
     public static BigDecimal netPnl(List<JSONObject> trades) {
         BigDecimal pnl = BigDecimal.ZERO;
         for (JSONObject trade : trades) {
             pnl = pnl.add(new BigDecimal(trade.optString("realizedPnl", "0")));
-            String asset = trade.optString("commissionAsset", "USDT");
-            if (asset.isEmpty() || "USDT".equals(asset)) {
-                pnl = pnl.subtract(new BigDecimal(trade.optString("commission", "0")));
-            }
         }
-        return pnl;
+        return pnl.subtract(feeUsdt(trades));
     }
 
     private static boolean samePosition(JSONObject trade, String positionSide) {

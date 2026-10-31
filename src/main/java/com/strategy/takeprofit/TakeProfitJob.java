@@ -468,8 +468,8 @@ public class TakeProfitJob {
             bnApiService.setLeverage(symbol, leverage);
             String positionSide = bnApiService.hedgeMode() ? "LONG" : "BOTH";
             bnApiService.placeLimit(symbol, "BUY", positionSide, plain(qty), plain(price), clientId, false);
-            String message = String.format("开单 %s 做多 价格 %s 现价 %s 数量 %s 保证金 %s 杠杆 %sx %s",
-                    symbol, plain(price), plain(lastPrice), plain(qty), plain(margin), leverage, note);
+            String message = String.format("挂单 %s 做多 价格 %s  保证金 %s 杠杆 %sx %s",
+                    symbol, plain(price), plain(margin), leverage, note);
             log.info(message);
             return true;
         } catch (Exception e) {
@@ -579,8 +579,7 @@ public class TakeProfitJob {
         } catch (Exception e) {
             log.error("查询开仓成交失败 {}", position.symbol, e);
         }
-        String message = String.format("开单 %s %s 数量 %s",
-                position.symbol, position.longPos ? "多" : "空", plain(position.qty));
+        String message = String.format("开单 %s %s", position.symbol, position.longPos ? "多" : "空");
         log.info(message);
         telegramNotifier.send(message);
     }
@@ -588,6 +587,7 @@ public class TakeProfitJob {
     private void reportClose(WatchedPosition position) {
         addAnchors.remove(anchorKey(position.symbol, position.positionSide));
         String pnl = "查询失败";
+        String fee = "查询失败";
         try {
             long now = System.currentTimeMillis();
             long start = position.sawOpen
@@ -598,11 +598,12 @@ public class TakeProfitJob {
                     ? PositionTradeReport.heldRound(trades, position.positionSide, position.openedAt)
                     : PositionTradeReport.closedRound(trades, position.longPos, position.positionSide, position.qty);
             pnl = plain(PositionTradeReport.netPnl(round));
+            fee = plain(PositionTradeReport.feeUsdt(round));
         } catch (Exception e) {
             log.error("查询关仓成交失败 {}", position.symbol, e);
         }
-        String message = String.format("关单 %s %s 盈利 %s USDT",
-                position.symbol, position.longPos ? "多" : "空", pnl);
+        String message = String.format("关单 %s %s 盈利 %s USDT 手续费 %s USDT",
+                position.symbol, position.longPos ? "多" : "空", pnl, fee);
         log.info(message);
         telegramNotifier.send(message);
     }
