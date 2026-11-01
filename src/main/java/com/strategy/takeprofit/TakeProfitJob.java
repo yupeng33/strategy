@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 仓位消失时撤掉本程序挂的止盈单。
  * 发现平仓时查询成交记录，盈利为收益减去开仓和平仓手续费。
  * 开仓限价单离现价超过设定比例时撤单。
- * 没有仓位、也没有未成交的开仓单时，按 24 小时涨幅前 10 再比 5 分钟涨幅，对第一名限价做多。
+ * 持仓个数低于配置上限时，按 24 小时涨幅前 10 再比 5 分钟涨幅，依次限价做多。
  * 持有多单后，预先在下一档平投价挂一张加仓限价单；成交后再挂下一档，使每个多单始终有一张加仓单。
  */
 @Slf4j
@@ -54,6 +54,9 @@ public class TakeProfitJob {
     @Value("${open-order.add-drop:0.10}")
     private String addDropText;
 
+    @Value("${open-order.max-positions:1}")
+    private String maxPositionsText;
+
     @Resource
     private BnApiService bnApiService;
 
@@ -72,8 +75,7 @@ public class TakeProfitJob {
     private final Map<String, AddAnchor> addAnchors = new ConcurrentHashMap<>();
 
     /** 已发出但仓位尚未出现的第一笔开仓，避免成交回报延迟时再挂一笔。 */
-    private String pendingEntrySymbol;
-    private long pendingEntryAt;
+    private final Map<String, Long> pendingEntries = new ConcurrentHashMap<>();
 
     private boolean positionBaselineReady;
 
@@ -115,17 +117,18 @@ public class TakeProfitJob {
             log.error("检查开仓挂单失败", e);
         }
 
-        if (pendingEntrySymbol != null && holds(positions, pendingEntrySymbol)) {
-            pendingEntrySymbol = null;
-        }
-
-        if (positions.isEmpty() && !hasOpeningOrder(openOrders, cancelledOpens) && !waitingForPendingEntry()) {
+        pendingEntries.keySet().removeIf(symbol -> holds(positions, symbol));
+        int maxPositions = maxPositions();
+        Set<String> occupied = occupiedSymbols(positions, openOrders, cancelledOpens);
+        int room = maxPositions - occupied.size();
+        if (maxPositions > 0 && room > 0) {
             try {
-                openFastestLong();
+                openFastestLong(room, occupied);
             } catch (Exception e) {
                 log.error("开仓失败", e);
             }
-        } else if (!positions.isEmpty()) {
+        }
+        if (!positions.isEmpty()) {
             try {
                 addOnDrop(positions, openOrders, cancelledOpens);
             } catch (Exception e) {
@@ -223,9 +226,7 @@ public class TakeProfitJob {
                 log.info(message);
                 cancelled.add(order.getLong("orderId"));
                 releaseAdd(order);
-                if (symbol.equals(pendingEntrySymbol)) {
-                    pendingEntrySymbol = null;
-                }
+                pendingEntries.remove(symbol);
             } catch (Exception e) {
                 log.error("撤销开仓挂单失败 {} {}", symbol, order.optLong("orderId"), e);
             }
@@ -233,23 +234,42 @@ public class TakeProfitJob {
         return cancelled;
     }
 
-    private static boolean hasOpeningOrder(List<JSONObject> openOrders, Set<Long> cancelled) {
+    private int maxPositions() {
+        try {
+            return Integer.parseInt(maxPositionsText.trim());
+        } catch (NumberFormatException e) {
+            log.error("open-order.max-positions 无法解析: {}", maxPositionsText);
+            return 0;
+        }
+    }
+
+    /** 已有仓位、未成交的第一笔开仓单，以及 60 秒内等待成交回报的合约，各占一个名额。 */
+    private Set<String> occupiedSymbols(List<JSONObject> positions, List<JSONObject> openOrders, Set<Long> cancelled) {
+        long now = System.currentTimeMillis();
+        pendingEntries.entrySet().removeIf(entry -> now - entry.getValue() >= 60_000L);
+        Set<String> occupied = new HashSet<>();
+        for (JSONObject pos : positions) {
+            if (new BigDecimal(pos.getString("positionAmt")).signum() != 0) {
+                occupied.add(pos.getString("symbol"));
+            }
+        }
         for (JSONObject order : openOrders) {
-            if (cancelled.contains(order.optLong("orderId"))) {
+            if (cancelled.contains(order.optLong("orderId")) || isPlannedAdd(order)) {
                 continue;
             }
             if (isOpeningLimit(order, BigDecimal.ZERO)) {
-                return true;
+                occupied.add(order.optString("symbol"));
             }
         }
-        return false;
+        occupied.addAll(pendingEntries.keySet());
+        return occupied;
     }
 
     /**
-     * 24 小时涨幅前 10 的币，再按当前 5 分钟 K 线涨幅从高到低，只对第一名挂做多限价。
-     * 限价为现价下跌配置比例，数量按固定保证金和杠杆计算。
+     * 24 小时涨幅前 10 的币，再按当前 5 分钟 K 线涨幅从高到低。
+     * 跳过已占用的合约，按名额补做多限价。限价为现价下跌配置比例。
      */
-    private void openFastestLong() {
+    private void openFastestLong(int room, Set<String> occupied) {
         BigDecimal margin;
         BigDecimal offset;
         int leverage;
@@ -308,26 +328,26 @@ public class TakeProfitJob {
         }
         log.info(board.toString());
 
-        String symbol = ranked.get(0).symbol;
-        if (placeLong(symbol, OpenEntry.limitPrice(ranked.get(0).lastPrice, offset),
-                bnApiService.priceTicks(), margin, leverage,
-                openClientId(symbol),
-                "5分钟涨幅 " + plain(ranked.get(0).fiveMinute.multiply(new BigDecimal("100"))) + "%")) {
-            pendingEntrySymbol = symbol;
-            pendingEntryAt = System.currentTimeMillis();
+        Map<String, BigDecimal> ticks = bnApiService.priceTicks();
+        int opened = 0;
+        for (Candidate candidate : ranked) {
+            if (opened >= room) {
+                break;
+            }
+            if (occupied.contains(candidate.symbol)) {
+                if (pendingEntries.containsKey(candidate.symbol)) {
+                    log.info("等待上一笔开仓结果，暂不重复开仓 {}", candidate.symbol);
+                }
+                continue;
+            }
+            if (placeLong(candidate.symbol, OpenEntry.limitPrice(candidate.lastPrice, offset),
+                    ticks, margin, leverage, openClientId(candidate.symbol),
+                    "5分钟涨幅 " + plain(candidate.fiveMinute.multiply(new BigDecimal("100"))) + "%")) {
+                pendingEntries.put(candidate.symbol, System.currentTimeMillis());
+                occupied.add(candidate.symbol);
+                opened++;
+            }
         }
-    }
-
-    private boolean waitingForPendingEntry() {
-        if (pendingEntrySymbol == null) {
-            return false;
-        }
-        if (System.currentTimeMillis() - pendingEntryAt < 60_000L) {
-            log.info("等待上一笔开仓结果，暂不重复开仓 {}", pendingEntrySymbol);
-            return true;
-        }
-        pendingEntrySymbol = null;
-        return false;
     }
 
     private static boolean holds(List<JSONObject> positions, String symbol) {

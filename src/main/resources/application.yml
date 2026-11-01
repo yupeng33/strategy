@@ -14,6 +14,8 @@ take-profit:
 # 开仓挂单价格和现价相差超过该比例则撤单。0.05 表示 5%
 open-order:
   max-price-diff: 0.01
+  # 同时持有的合约个数。未成交的第一笔开仓单也占一个名额
+  max-positions: 2
   margin: 100
   leverage: 10
   price-offset: 0.001
