@@ -22,7 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 扫描币安 U 本位当前仓位，按保证金比例挂止盈限价单。
- * 数量、开仓价或杠杆变化时，先撤掉对应止盈单，再按当前仓位重挂。
+ * 数量、开仓价、杠杆或需要计入的资金费亏损变化时，先撤掉对应止盈单，再按当前仓位重挂。
+ * 资金费净赚或持平时不改变止盈价。
  * 仓位消失时撤掉本程序挂的止盈单。
  * 发现平仓时查询成交记录，盈利为收益减去开仓和平仓手续费。
  * 开仓限价单离现价超过设定比例时撤单。
@@ -65,8 +66,11 @@ public class TakeProfitJob {
 
     private int lastPositionCount = -1;
 
-    /** 上次成功挂单时的仓位。数量、开仓价、杠杆任一变化都要重挂。 */
+    /** 上次成功挂单时的仓位。数量、开仓价、杠杆或资金费亏损变化都要重挂。 */
     private final Map<String, PositionState> placedState = new ConcurrentHashMap<>();
+
+    /** 资金费亏损缓存。结算大约 8 小时一次，避免每 3 秒重复查询。 */
+    private final Map<String, FundingSnapshot> fundingCache = new ConcurrentHashMap<>();
 
     /** 已见到的仓位，用来识别开仓和平仓。 */
     private final Map<String, WatchedPosition> watchedPositions = new ConcurrentHashMap<>();
@@ -168,6 +172,7 @@ public class TakeProfitJob {
             cancelQuietly(order, "仓位已平，撤销止盈单 " + order.optString("symbol"));
         }
         placedState.keySet().retainAll(liveKeys);
+        fundingCache.keySet().retainAll(liveKeys);
     }
 
     private Set<Long> cancelDistantOpenOrders(List<JSONObject> positions, List<JSONObject> openOrders) {
@@ -634,7 +639,11 @@ public class TakeProfitJob {
                 reportOpen(opened);
                 watchedPositions.put(entry.getKey(), opened);
             } else {
-                existing.qty = new BigDecimal(entry.getValue().getString("positionAmt")).abs();
+                BigDecimal qty = new BigDecimal(entry.getValue().getString("positionAmt")).abs();
+                if (existing.qty != null && qty.compareTo(existing.qty) > 0) {
+                    reportAdd(existing, qty);
+                }
+                existing.qty = qty;
             }
         }
 
@@ -658,6 +667,13 @@ public class TakeProfitJob {
             log.error("查询开仓成交失败 {}", position.symbol, e);
         }
         String message = String.format("开单 %s %s", position.symbol, position.longPos ? "多" : "空");
+        log.info(message);
+        telegramNotifier.send(message);
+    }
+
+    private void reportAdd(WatchedPosition position, BigDecimal qty) {
+        String message = String.format("加仓 %s %s 数量 %s 持仓 %s",
+                position.symbol, position.longPos ? "多" : "空", plain(qty.subtract(position.qty)), plain(qty));
         log.info(message);
         telegramNotifier.send(message);
     }
@@ -761,8 +777,10 @@ public class TakeProfitJob {
             return;
         }
 
+        PositionState previous = placedState.get(clientId);
+        BigDecimal fundingLoss = fundingLoss(clientId, pos, qty, longPos, positionSide, previous);
         BigDecimal margin = TakeProfitPrice.initialMargin(qty, entry, leverage);
-        BigDecimal target = TakeProfitPrice.targetProfit(margin, marginRatio);
+        BigDecimal target = TakeProfitPrice.targetProfit(margin, marginRatio, fundingLoss);
         if (target.signum() <= 0) {
             log.warn("目标盈利无效，跳过 {}", symbol);
             return;
@@ -779,37 +797,86 @@ public class TakeProfitJob {
         String closeSide = longPos ? "SELL" : "BUY";
         String qtyText = qty.stripTrailingZeros().toPlainString();
         String triggerText = trigger.toPlainString();
-        PositionState previous = placedState.get(clientId);
-        boolean changed = previous != null && previous.differs(qty, entry, leverage);
+        boolean changed = previous != null && previous.differs(qty, entry, leverage, fundingLoss);
+        String previousPrice = singleOrderPrice(related);
 
         if (!changed && previous != null && related.size() == 1) {
             return;
         }
         if (!changed && previous == null && matches(related, trigger, qty)) {
-            placedState.put(clientId, new PositionState(qty, entry, leverage));
+            placedState.put(clientId, new PositionState(qty, entry, leverage, fundingLoss));
             return;
         }
 
-        if (changed) {
-            log.info("持仓变化，撤销止盈并重挂 {} {} 数量 {} -> {} 开仓价 {} -> {} 杠杆 {}x -> {}x",
-                    symbol, direction,
-                    plain(previous.qty), plain(qty),
-                    plain(previous.entry), plain(entry),
-                    previous.leverage, leverage);
-        }
         if (!cancelAll(related)) {
             return;
         }
 
         try {
             bnApiService.placeLimit(symbol, closeSide, positionSide, qtyText, triggerText, clientId, "BOTH".equals(positionSide));
-            placedState.put(clientId, new PositionState(qty, entry, leverage));
-            String action = (changed || !related.isEmpty()) ? "止盈限价单已按当前仓位重挂" : "止盈限价单已设置";
-            log.info("{} {} {} 保证金={}U 目标盈利={}U 限价={}",
-                    action, symbol, direction, plain(margin), plain(target), triggerText);
+            placedState.put(clientId, new PositionState(qty, entry, leverage, fundingLoss));
+            if (previous != null || previousPrice != null) {
+                log.info("更新止盈价 {} {} {} -> {} 保证金={}U 目标盈利={}U 资金费亏损={}U",
+                        symbol, direction, previousPrice == null ? "无" : previousPrice, triggerText,
+                        plain(margin), plain(target), plain(fundingLoss));
+            } else {
+                log.info("止盈限价单已设置 {} {} 保证金={}U 目标盈利={}U 资金费亏损={}U 限价={}",
+                        symbol, direction, plain(margin), plain(target), plain(fundingLoss), triggerText);
+            }
         } catch (RuntimeException e) {
             log.error("挂止盈限价单失败 {} {}", symbol, direction, e);
         }
+    }
+
+    /**
+     * 这一轮仓位的资金费净亏损。净赚或持平为 0，止盈价保持按保证金比例计算。
+     * 查询失败时沿用上次计入的亏损，避免把止盈暂时改回去。
+     */
+    private BigDecimal fundingLoss(String clientId, JSONObject pos, BigDecimal qty, boolean longPos,
+                                   String positionSide, PositionState previous) {
+        long since = fundingStart(clientId, pos, qty, longPos, positionSide);
+        FundingSnapshot cached = fundingCache.get(clientId);
+        long now = System.currentTimeMillis();
+        if (cached != null && cached.since == since && now - cached.loadedAt < 60_000L) {
+            return cached.loss;
+        }
+        try {
+            BigDecimal income = bnApiService.fundingIncome(pos.getString("symbol"), since, now);
+            BigDecimal loss = TakeProfitPrice.fundingLoss(income);
+            fundingCache.put(clientId, new FundingSnapshot(loss, now, since));
+            return loss;
+        } catch (Exception e) {
+            log.warn("读取资金费失败 {}，止盈沿用上次的资金费亏损", pos.optString("symbol"));
+            BigDecimal loss = previous == null ? BigDecimal.ZERO : previous.fundingLoss;
+            fundingCache.put(clientId, new FundingSnapshot(loss, now, since));
+            return loss;
+        }
+    }
+
+    /** 本程序看到的开仓用开仓时间。启动前已有的仓位，用最近 7 天内最早一笔开仓成交。 */
+    private long fundingStart(String clientId, JSONObject pos, BigDecimal qty, boolean longPos, String positionSide) {
+        WatchedPosition watched = watchedPositions.get(clientId);
+        if (watched != null && watched.sawOpen) {
+            return watched.openedAt;
+        }
+        if (watched != null && watched.fundingSince > 0) {
+            return watched.fundingSince;
+        }
+        long now = System.currentTimeMillis();
+        try {
+            List<JSONObject> trades = bnApiService.userTrades(pos.getString("symbol"), now - 7L * 24 * 60 * 60 * 1000L, now);
+            List<JSONObject> opens = PositionTradeReport.newestFillsUntilQty(trades, true, longPos, positionSide, qty);
+            long first = opens.stream().mapToLong(trade -> trade.optLong("time")).min().orElse(0L);
+            if (first > 0) {
+                if (watched != null) {
+                    watched.fundingSince = first;
+                }
+                return first;
+            }
+        } catch (Exception e) {
+            log.warn("查询开仓时间失败 {}，资金费从识别到仓位时开始计", pos.optString("symbol"));
+        }
+        return watched == null ? now : watched.openedAt;
     }
 
     private void cancelLegacyAlgoOrders() {
@@ -868,6 +935,17 @@ public class TakeProfitJob {
             log.error("撤销止盈限价单失败 {} {}", order.optString("symbol"), order.optLong("orderId"), e);
             return false;
         }
+    }
+
+    private static String singleOrderPrice(List<JSONObject> orders) {
+        if (orders.size() != 1) {
+            return null;
+        }
+        String price = orders.get(0).optString("price", "");
+        if (price.isEmpty()) {
+            return null;
+        }
+        return plain(new BigDecimal(price));
     }
 
     private static boolean matches(List<JSONObject> orders, BigDecimal trigger, BigDecimal qty) {
@@ -956,24 +1034,40 @@ public class TakeProfitJob {
         private boolean longPos;
         private BigDecimal qty;
         private long openedAt;
+        private long fundingSince;
         private boolean sawOpen;
+    }
+
+    static final class FundingSnapshot {
+        private final BigDecimal loss;
+        private final long loadedAt;
+        private final long since;
+
+        FundingSnapshot(BigDecimal loss, long loadedAt, long since) {
+            this.loss = loss;
+            this.loadedAt = loadedAt;
+            this.since = since;
+        }
     }
 
     static final class PositionState {
         private final BigDecimal qty;
         private final BigDecimal entry;
         private final int leverage;
+        private final BigDecimal fundingLoss;
 
-        PositionState(BigDecimal qty, BigDecimal entry, int leverage) {
+        PositionState(BigDecimal qty, BigDecimal entry, int leverage, BigDecimal fundingLoss) {
             this.qty = qty;
             this.entry = entry;
             this.leverage = leverage;
+            this.fundingLoss = fundingLoss;
         }
 
-        boolean differs(BigDecimal newQty, BigDecimal newEntry, int newLeverage) {
+        boolean differs(BigDecimal newQty, BigDecimal newEntry, int newLeverage, BigDecimal newFundingLoss) {
             return qty.compareTo(newQty) != 0
                     || entry.compareTo(newEntry) != 0
-                    || leverage != newLeverage;
+                    || leverage != newLeverage
+                    || fundingLoss.compareTo(newFundingLoss) != 0;
         }
     }
 }

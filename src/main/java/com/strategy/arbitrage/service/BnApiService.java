@@ -135,6 +135,53 @@ public class BnApiService {
         return parseArray(body);
     }
 
+    /**
+     * 该合约资金费净收入，单位 USDT。正数是赚到的，负数是付出的。
+     * 币安只保留约 3 个月，单次区间按小于 7 天拆开查。
+     */
+    public BigDecimal fundingIncome(String symbol, long startTime, long endTime) {
+        long now = binanceTime();
+        long end = Math.min(endTime, now);
+        long earliest = now - 90L * 24 * 60 * 60 * 1000L + 60_000L;
+        long start = Math.max(startTime, earliest);
+        if (start > end) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal sum = BigDecimal.ZERO;
+        long cursor = start;
+        while (cursor <= end) {
+            long windowEnd = Math.min(end, cursor + 7L * 24 * 60 * 60 * 1000L - 60_000L);
+            sum = sum.add(fundingWindow(symbol, cursor, windowEnd));
+            cursor = windowEnd + 1;
+        }
+        return sum;
+    }
+
+    private BigDecimal fundingWindow(String symbol, long startTime, long endTime) {
+        BigDecimal sum = BigDecimal.ZERO;
+        for (int page = 1; page <= 5; page++) {
+            LinkedHashMap<String, String> params = new LinkedHashMap<>();
+            params.put("symbol", symbol);
+            params.put("incomeType", "FUNDING_FEE");
+            params.put("startTime", String.valueOf(startTime));
+            params.put("endTime", String.valueOf(endTime));
+            params.put("page", String.valueOf(page));
+            params.put("limit", "1000");
+            List<JSONObject> batch = parseArray(signed("GET", "/fapi/v1/income", params));
+            for (JSONObject row : batch) {
+                String asset = row.optString("asset", "USDT");
+                if (!asset.isEmpty() && !"USDT".equals(asset)) {
+                    continue;
+                }
+                sum = sum.add(new BigDecimal(row.optString("income", "0")));
+            }
+            if (batch.size() < 1000) {
+                break;
+            }
+        }
+        return sum;
+    }
+
     public List<JSONObject> userTrades(String symbol, long startTime, long endTime) {
         long now = binanceTime();
         long end = Math.min(endTime, now);
