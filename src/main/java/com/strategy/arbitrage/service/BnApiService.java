@@ -51,6 +51,9 @@ public class BnApiService {
     private volatile long tickLoadedAt;
     private volatile Boolean hedgeMode;
     private volatile long hedgeLoadedAt;
+    /** 币安服务器时间减去本机时间。本机偏快时为负数，避免签名时间超前被拒绝。 */
+    private volatile long timeOffsetMs;
+    private volatile long timeOffsetAt;
 
     public List<JSONObject> positions() {
         String body = signed("GET", POSITION, Map.of());
@@ -133,10 +136,18 @@ public class BnApiService {
     }
 
     public List<JSONObject> userTrades(String symbol, long startTime, long endTime) {
+        long now = binanceTime();
+        long end = Math.min(endTime, now);
+        // 币安要求开始时间落在最近 7 天内，且区间必须小于 7 天。留 1 分钟余量，避免刚好踩线。
+        long earliest = now - 7L * 24 * 60 * 60 * 1000L + 60_000L;
+        long start = Math.max(startTime, earliest);
+        if (start > end) {
+            return List.of();
+        }
         List<JSONObject> all = new ArrayList<>();
-        long cursor = startTime;
-        while (cursor <= endTime) {
-            long windowEnd = Math.min(endTime, cursor + 7L * 24 * 60 * 60 * 1000L - 1);
+        long cursor = start;
+        while (cursor <= end) {
+            long windowEnd = Math.min(end, cursor + 7L * 24 * 60 * 60 * 1000L - 60_000L);
             all.addAll(userTradesWindow(symbol, cursor, windowEnd));
             cursor = windowEnd + 1;
         }
@@ -352,9 +363,13 @@ public class BnApiService {
     }
 
     private String signed(String method, String path, Map<String, String> params) {
+        return signed(method, path, params, true);
+    }
+
+    private String signed(String method, String path, Map<String, String> params, boolean allowTimeRetry) {
         LinkedHashMap<String, String> signedParams = new LinkedHashMap<>(params);
         signedParams.put("recvWindow", "5000");
-        signedParams.put("timestamp", String.valueOf(System.currentTimeMillis()));
+        signedParams.put("timestamp", String.valueOf(binanceTime()));
         String query = signedParams.entrySet().stream()
                 .map(e -> e.getKey() + "=" + encode(e.getValue()))
                 .reduce((a, b) -> a + "&" + b)
@@ -373,6 +388,11 @@ public class BnApiService {
         try (Response response = HttpUtil.client.newCall(request).execute()) {
             String body = response.body() == null ? "" : response.body().string();
             int code = errorCode(body);
+            if (code == -1021 && allowTimeRetry) {
+                log.warn("本机时间与币安不一致，重新对时后重试");
+                refreshTimeOffset();
+                return signed(method, path, params, false);
+            }
             if (code == -2021) {
                 throw new ImmediateTriggerException(body);
             }
@@ -386,6 +406,31 @@ public class BnApiService {
             throw e;
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private long binanceTime() {
+        long now = System.currentTimeMillis();
+        if (timeOffsetAt == 0 || now - timeOffsetAt > 60_000L) {
+            refreshTimeOffset();
+        }
+        return System.currentTimeMillis() + timeOffsetMs;
+    }
+
+    private void refreshTimeOffset() {
+        Request request = new Request.Builder().url(baseUrl + "/fapi/v1/time").get().build();
+        try (Response response = HttpUtil.client.newCall(request).execute()) {
+            String body = response.body() == null ? "" : response.body().string();
+            if (!response.isSuccessful()) {
+                log.warn("读取币安时间失败 http {}", response.code());
+                return;
+            }
+            long serverTime = new JSONObject(body).getLong("serverTime");
+            long localTime = System.currentTimeMillis();
+            timeOffsetMs = serverTime - localTime;
+            timeOffsetAt = localTime;
+        } catch (Exception e) {
+            log.warn("读取币安时间失败", e);
         }
     }
 
