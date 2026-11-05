@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 发现平仓时查询成交记录，盈利为收益减去开仓和平仓手续费。
  * 开仓限价单离现价超过设定比例时撤单。
  * 持仓个数低于配置上限时，按 24 小时涨幅前 10 再比 5 分钟涨幅，依次限价做多。
- * 持有多单后，预先在下一档平投价挂一张加仓限价单；成交后再挂下一档，使每个多单始终有一张加仓单。
+ * 持有多单后，在加仓次数未达上限时预先挂下一档平投限价单；成交后再挂下一档。
  */
 @Slf4j
 @Component
@@ -54,6 +54,9 @@ public class TakeProfitJob {
 
     @Value("${open-order.add-drop:0.10}")
     private String addDropText;
+
+    @Value("${open-order.max-adds:2}")
+    private String maxAddsText;
 
     @Value("${open-order.max-positions:1}")
     private String maxPositionsText;
@@ -365,26 +368,31 @@ public class TakeProfitJob {
     }
 
     /**
-     * 每个多单预先挂下一档平投限价。档位价相对第一笔成交价每档下跌配置比例，再下调开仓偏移。
-     * 已有未成交的加仓单时不重复挂；成交后下一轮补上下一档。
+     * 每个多单在未达最大加仓次数时，预先挂下一档平投限价。
+     * 档位价相对第一笔成交价每档下跌配置比例，再下调开仓偏移。
+     * 已有未成交的加仓单时不重复挂；成交后下一轮补上下一档，直到达到次数上限。
      */
     private void addOnDrop(List<JSONObject> positions, List<JSONObject> openOrders, Set<Long> cancelled) {
         BigDecimal drop;
         BigDecimal margin;
         BigDecimal offset;
         int leverage;
+        int maxAdds;
         try {
             drop = new BigDecimal(addDropText);
             margin = new BigDecimal(openMarginText);
             offset = new BigDecimal(openPriceOffsetText);
             leverage = Integer.parseInt(openLeverageText.trim());
+            maxAdds = Integer.parseInt(maxAddsText.trim());
         } catch (NumberFormatException e) {
             log.error("平投参数无法解析");
             return;
         }
         if (drop.signum() <= 0 || drop.compareTo(BigDecimal.ONE) >= 0
-                || margin.signum() <= 0 || leverage <= 0 || offset.signum() < 0 || offset.compareTo(BigDecimal.ONE) >= 0) {
-            log.error("平投参数无效 drop={} margin={} leverage={} offset={}", addDropText, openMarginText, openLeverageText, openPriceOffsetText);
+                || margin.signum() <= 0 || leverage <= 0 || offset.signum() < 0 || offset.compareTo(BigDecimal.ONE) >= 0
+                || maxAdds < 0) {
+            log.error("平投参数无效 drop={} margin={} leverage={} offset={} maxAdds={}",
+                    addDropText, openMarginText, openLeverageText, openPriceOffsetText, maxAddsText);
             return;
         }
 
@@ -397,12 +405,17 @@ public class TakeProfitJob {
                 continue;
             }
             String symbol = pos.getString("symbol");
-            if (hasPlannedAdd(openOrders, cancelled, symbol)) {
-                continue;
-            }
             BigDecimal qty = amt.abs();
             AddAnchor anchor = refreshAnchor(anchorKey(symbol, positionSide), pos, qty);
             if (anchor == null || anchor.firstPrice == null) {
+                continue;
+            }
+            if (anchor.filledAdds >= maxAdds) {
+                cancelAddsAbove(openOrders, symbol, cancelled, 0, maxAdds);
+                continue;
+            }
+            cancelAddsAbove(openOrders, symbol, cancelled, maxAdds, maxAdds);
+            if (hasPlannedAdd(openOrders, cancelled, symbol)) {
                 continue;
             }
             if (ticks == null) {
@@ -559,6 +572,19 @@ public class TakeProfitJob {
             }
         }
         return true;
+    }
+
+    static int plannedAddIndex(JSONObject order) {
+        if (!isPlannedAdd(order)) {
+            return 0;
+        }
+        String clientId = order.optString("clientOrderId", "");
+        int split = clientId.lastIndexOf('_');
+        try {
+            return Integer.parseInt(clientId.substring(split + 1));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     private static boolean hasPlannedAdd(List<JSONObject> openOrders, Set<Long> cancelled, String symbol) {
@@ -718,6 +744,26 @@ public class TakeProfitJob {
             }
         }
         return false;
+    }
+
+    /** 撤销档位序号大于 maxIndex 的补仓单。maxIndex 为 0 时撤销该合约全部补仓单。 */
+    private void cancelAddsAbove(List<JSONObject> openOrders, String symbol, Set<Long> cancelled, int maxIndex, int maxAdds) {
+        for (JSONObject order : openOrders) {
+            if (!symbol.equals(order.optString("symbol")) || cancelled.contains(order.optLong("orderId")) || !isPlannedAdd(order)) {
+                continue;
+            }
+            int index = plannedAddIndex(order);
+            if (index <= maxIndex) {
+                continue;
+            }
+            try {
+                bnApiService.cancelOrder(symbol, order.getLong("orderId"));
+                cancelled.add(order.getLong("orderId"));
+                log.info("超过最大加仓次数 {}，撤销补仓单 {} 第{}档 orderId={}", maxAdds, symbol, index, order.optLong("orderId"));
+            } catch (Exception e) {
+                log.error("撤销补仓单失败 {} {}", symbol, order.optLong("orderId"), e);
+            }
+        }
     }
 
     private void cancelPlannedAdds(List<JSONObject> openOrders, String symbol, Set<Long> cancelledAdds) {
